@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Центровка фото товара</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Раскладка: узкая колонка шагов слева, превью макета и результат справа; на телефоне — в одну колонку. */
+:root {
+  --bg: #f5f4f7;
+  --surface: #ffffff;
+  --surface-2: #faf9fb;
+  --fg: #1d1b22;
+  --muted: #6b6676;
+  --line: #e2dfe8;
+  --accent: #a3127a;
+  --accent-fg: #ffffff;
+  --accent-soft: #f7e3f1;
+  --ok: #1d7f52;
+  --warn: #9a5a00;
+  --warn-soft: #fbf0dd;
+  --was: #7d7887;
+  --focus: #6e3fd0;
+  --font-ui: "Golos Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141217; --surface: #1c1a20; --surface-2: #211e26; --fg: #eeeaf2; --muted: #a39eac;
+    --line: #2f2b35; --accent: #f05cc2; --accent-fg: #1b0a15; --accent-soft: #3a1830;
+    --ok: #4cc38a; --warn: #e3a33b; --warn-soft: #3a2b12; --was: #9a95a3; --focus: #a98cf5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141217; --surface: #1c1a20; --surface-2: #211e26; --fg: #eeeaf2; --muted: #a39eac;
+  --line: #2f2b35; --accent: #f05cc2; --accent-fg: #1b0a15; --accent-soft: #3a1830;
+  --ok: #4cc38a; --warn: #e3a33b; --warn-soft: #3a2b12; --was: #9a95a3; --focus: #a98cf5;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 15px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.app { max-width: 1320px; margin: 0 auto; display: grid; gap: 20px; }
+header h1 { font-size: 26px; line-height: 1.15; margin: 0 0 6px; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 70ch; }
+.layout { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.col { display: grid; gap: 14px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+.card h2 .opt { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.drop { border: 1.5px dashed var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 6px; justify-items: start; background: var(--surface-2); transition: border-color .15s, background .15s; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { margin: 0; color: var(--muted); font-size: 13px; }
+.status { font-size: 13px; color: var(--muted); display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.status strong { color: var(--fg); font-weight: 600; }
+.banner { background: var(--warn-soft); color: var(--fg); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.error { color: #c0392b; font-size: 13px; }
+:root[data-theme="dark"] .error { color: #ff8a7a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .error { color: #ff8a7a; } }
+button, .btn {
+  font: inherit; font-weight: 600; font-size: 14px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--fg); padding: 8px 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, .btn:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.btn input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.btn { position: relative; }
+select, input[type=number], textarea {
+  font: inherit; font-size: 14px; color: var(--fg); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0;
+}
+textarea { font-family: var(--font-mono); font-size: 12px; min-height: 120px; resize: vertical; }
+label.check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+label.check input { margin-top: 3px; accent-color: var(--accent); }
+details.paste summary, details.settings summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+details.paste[open] { display: grid; gap: 8px; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; margin-top: 12px; }
+.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.field.wide { grid-column: 1 / -1; }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+.png-row { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.thumb { width: 64px; height: 64px; border-radius: 8px; border: 1px solid var(--line);
+  background: repeating-conic-gradient(var(--line) 0% 25%, var(--surface-2) 0% 50%) 50% / 12px 12px; object-fit: contain; flex: none; }
+.preview-card { gap: 10px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.toggles { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 18px; height: 0; border-top: 2px solid; display: inline-block; }
+.sw.after { border-color: var(--accent); }
+.sw.before { border-color: var(--was); border-top-style: dashed; }
+.sw.free { height: 10px; border: 1px solid #1f9a5c; background: rgba(31,154,92,.18); }
+.sw.boxes { border-color: #d6453d; }
+.sw.mass { height: 10px; border: 1px solid #12a06a; background: rgba(20,190,120,.35); }
+.sw.thin { height: 10px; border: 1px solid #e07a00; background: rgba(255,140,0,.6); }
+.legend .png-only[hidden] { display: none; }
+.stage { width: 100%; display: flex; justify-content: center; background: var(--surface-2); border-radius: 8px; padding: 10px; overflow: hidden; }
+canvas#preview { display: block; max-width: 100%; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.layout-meta { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.layout-meta strong { color: var(--fg); }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14px; }
+th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+td.num { font-family: var(--font-mono); font-size: 13px; }
+@media (max-width: 520px) { th, td { padding: 6px 5px; } td.num { font-size: 12px; } }
+tr.after td { font-weight: 600; }
+tr.after td:first-child { color: var(--accent); }
+tr.delta td { color: var(--muted); }
+.notes { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.notes li.warn { color: var(--warn); }
+table.elements th, table.elements td { text-align: left; white-space: normal; }
+table.elements td.num { text-align: right; white-space: nowrap; }
+table.elements tr.muted td { color: var(--muted); }
+.elements-box { min-width: 0; }
+.elements-box > .table-wrap { margin-top: 8px; }
+@media (max-width: 520px) { table.elements { font-size: 13px; } }
+.elements-box summary { cursor: pointer; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.toast { font-size: 13px; color: var(--ok); min-height: 1.2em; }
+.chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Центровка фото товара</h1>
+    <p>Загрузите JSON экспорта проекта DOOH — инструмент вернёт его с контейнером «Фото товара», выровненным по центру свободного места между элементами. Меняются только x, y, w, h этого контейнера.</p>
+  </header>
+
+  <div class="layout">
+    <div class="col">
+      <section class="card" aria-labelledby="h-json">
+        <h2 id="h-json">1. JSON проекта</h2>
+        <div class="drop" id="drop">
+          <label class="btn primary" for="json-file">Выбрать JSON<input type="file" id="json-file" accept=".json,application/json"></label>
+          <p>или перетащите файл сюда</p>
+        </div>
+        <details class="paste" id="paste">
+          <summary>Вставить JSON текстом</summary>
+          <textarea id="paste-text" spellcheck="false" placeholder="{ &quot;project&quot;: …, &quot;scenes&quot;: [ … ] }"></textarea>
+          <div><button type="button" id="paste-apply">Применить</button></div>
+        </details>
+        <div class="status" id="json-status"></div>
+        <div class="banner" id="sample-banner">Открыт пример — демо-лейаут 1440×480. Чтобы получить файл для импорта, загрузите свой JSON.</div>
+        <div class="error" id="json-error" hidden></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-layout">
+        <h2 id="h-layout">2. Лейаут</h2>
+        <select id="layout-select" aria-label="Лейаут"></select>
+        <label class="check"><input type="checkbox" id="apply-all"> <span>Выровнять во всех лейаутах, где есть фото товара</span></label>
+      </section>
+
+      <section class="card" aria-labelledby="h-png">
+        <h2 id="h-png">3. Фото товара <span class="opt">необязательно</span></h2>
+        <p class="hint">С PNG инструмент делит силуэт на <b>массу</b> — плотную часть (щётка, корпус) — и <b>тонкие части</b> (ручка, шнур, ножки). Масса встаёт крупно, с воздухом до элементов; тонкие части уходят в соседнее свободное место. Без PNG контейнер занимает всё свободное место, и картинка впишется в него целиком.</p>
+        <div class="png-row">
+          <img class="thumb" id="png-thumb" alt="" hidden>
+          <div class="status" id="png-status">PNG не загружен</div>
+        </div>
+        <div class="actions">
+          <label class="btn" for="png-file">Загрузить PNG<input type="file" id="png-file" accept="image/png,image/webp"></label>
+          <button type="button" id="png-clear" hidden>Убрать</button>
+        </div>
+        <div class="error" id="png-error" hidden></div>
+      </section>
+
+      <section class="card">
+        <details class="settings" id="settings">
+          <summary>Параметры расчёта</summary>
+          <div class="settings-grid">
+            <label class="field">Поле от краёв, px<input type="number" id="opt-margin" min="0" max="200" step="1"></label>
+            <label class="field">Отступ от элементов, px<input type="number" id="opt-padding" min="0" max="200" step="1"></label>
+            <label class="field">Воздух вокруг массы (с PNG), px<input type="number" id="opt-clearance" min="0" max="400" step="1"></label>
+            <label class="field">Размер массы (с PNG), % от максимума<input type="number" id="opt-fill" min="40" max="100" step="1"></label>
+            <label class="field">Порог «тонкой» части, %<input type="number" id="opt-thin" min="5" max="60" step="1"></label>
+            <label class="check wide field"><input type="checkbox" id="opt-crop"> <span>Тонкие части можно обрезать краем кадра, если масса товара станет крупнее в 1,5+ раза</span></label>
+            <label class="field wide">Пропорции товара без PNG
+              <select id="opt-aspect">
+                <option value="1">1 : 1 — квадрат</option>
+                <option value="0.75">3 : 4 — вертикальный</option>
+                <option value="0.5625">9 : 16 — высокий</option>
+                <option value="1.3333">4 : 3 — горизонтальный</option>
+                <option value="1.7778">16 : 9 — широкий</option>
+              </select>
+            </label>
+            <label class="field">Ширина лого WB, × h<input type="number" id="opt-f-logo" min="0.5" max="6" step="0.01"></label>
+            <label class="field">Ширина скидки, × h<input type="number" id="opt-f-discount" min="0.5" max="6" step="0.01"></label>
+            <label class="field">Ширина «Цена и кнопка», × h<input type="number" id="opt-f-cta" min="0.5" max="6" step="0.01"></label>
+            <label class="field">Мин. сторона области, px<input type="number" id="opt-minside" min="20" max="600" step="1"></label>
+            <label class="check wide field"><input type="checkbox" id="opt-disclaimer"> <span>Дисклеймер — препятствие (по умолчанию товар может уходить под него)</span></label>
+            <label class="check wide field"><input type="checkbox" id="opt-split"> <span>Товар может заходить под заголовок с разбиением (splitByProductImage)</span></label>
+            <label class="check wide field"><input type="checkbox" id="opt-safe"> <span>Учитывать safeZones сцены</span></label>
+            <div class="field wide"><button type="button" id="opt-reset">Вернуть значения по умолчанию</button></div>
+          </div>
+        </details>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card preview-card" aria-labelledby="h-preview">
+        <div class="toolbar">
+          <h2 id="h-preview">Превью</h2>
+          <div class="toggles">
+            <label class="check"><input type="checkbox" id="show-before" checked> <span>Было</span></label>
+            <label class="check"><input type="checkbox" id="show-free" checked> <span>Свободное место</span></label>
+            <label class="check"><input type="checkbox" id="show-boxes"> <span>Рамки элементов</span></label>
+            <label class="check" id="show-mass-wrap" hidden><input type="checkbox" id="show-mass" checked> <span>Масса товара</span></label>
+          </div>
+        </div>
+        <div class="layout-meta" id="layout-meta"></div>
+        <div class="stage" id="stage"><canvas id="preview" role="img" aria-label="Превью лейаута с контейнером фото товара"></canvas></div>
+        <div class="legend">
+          <span><i class="sw after"></i>контейнер — стало</span>
+          <span><i class="sw before"></i>было</span>
+          <span><i class="sw free"></i>свободное место</span>
+          <span><i class="sw boxes"></i>рамки элементов (оценка)</span>
+          <span class="png-only" hidden><i class="sw mass"></i>масса товара</span>
+          <span class="png-only" hidden><i class="sw thin"></i>тонкие части</span>
+        </div>
+        <p class="hint">Элементы нарисованы приблизительно, по координатам из JSON. Точный вид — в редакторе после импорта.</p>
+      </section>
+
+      <section class="card" aria-labelledby="h-result">
+        <h2 id="h-result">Результат <span class="chip" id="result-chip" hidden></span></h2>
+        <div class="table-wrap" id="result-table"></div>
+        <ul class="notes" id="notes"></ul>
+        <details class="elements-box" id="elements-box" open>
+          <summary class="hint">Как инструмент видит элементы</summary>
+          <div class="table-wrap" id="elements-table"></div>
+        </details>
+        <div class="actions">
+          <button type="button" class="primary" id="download" hidden>Скачать JSON</button>
+          <button type="button" id="copy">Скопировать JSON</button>
+          <span class="toast" id="toast" role="status" aria-live="polite"></span>
+        </div>
+        <details>
+          <summary class="hint">Показать JSON</summary>
+          <textarea id="out-text" spellcheck="false" readonly aria-label="Итоговый JSON"></textarea>
+        </details>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="sample-json">{"project":{"id":"demo-project","name":"Демо","layoutElements":[]},"scenes":[{"id":"demo-scene-0","canvas":{"width":1440,"height":480},"placement":{"id":"demo-placement-0","name":"Демо_1440x480"},"layouts":[{"id":"demo-layout-0-0","name":"Демо_1440x480_5с_1","durationSec":5,"elements":[{"properties":[{"key":"fadeEnabled","value":true},{"key":"h","value":192,"visibility":"public"},{"key":"fadeOpacity","value":30},{"key":"fadeColor","value":"#000000"},{"key":"fadePosition","value":"bottom"},{"key":"gradientStops","value":""},{"key":"gradientStart","value":""},{"key":"gradientEnd","value":""}],"title":"Градиент подложка","type":"fade"},{"properties":[{"key":"x","value":1153.65},{"key":"y","value":34.63},{"key":"h","value":100},{"key":"text","value":""},{"key":"color","value":"#FFFF00"},{"key":"textColor","value":"#000000"},{"key":"enabled","value":true},{"key":"rotation","value":0},{"key":"animationEnabled","value":true},{"key":"animationSide","value":"left"}],"title":"Скидка","type":"discount"},{"properties":[{"key":"color","value":"#A3D9C4"}],"title":"Фон","type":"background"},{"properties":[{"key":"x","value":46.16},{"key":"y","value":179.25},{"key":"h","value":163.06},{"key":"text","value":""},{"key":"shadowEnabled","value":false},{"key":"shadowOpacity","value":0.16},{"key":"shadowHeight","value":0.35},{"key":"shadowBlur","value":0.6},{"key":"shadowColor","value":"#000000"}],"title":"Цена и кнопка","type":"cta"},{"properties":[{"key":"x","value":39.77},{"key":"y","value":420},{"key":"w","value":1360},{"key":"h","value":34},{"key":"fontSize","value":34},{"key":"fontWeight","value":300},{"key":"text","value":""},{"key":"theme","value":"dark"},{"key":"vAlign","value":"bottom"},{"key":"align","value":"left"},{"key":"shadowEnabled","value":false},{"key":"shadowOpacity","value":0.22},{"key":"shadowHeight","value":0.45},{"key":"shadowBlur","value":0.6},{"key":"shadowColor","value":"#000000"}],"title":"Дисклеймер","type":"disclaimer"},{"properties":[{"key":"x","value":1240},{"key":"y","value":360},{"key":"h","value":80},{"key":"color","value":"#FF00FF"},{"key":"textColor","value":"#FFFFFF"},{"key":"animationEnabled","value":true}],"title":"Лого WB","type":"wb-logo"}]},{"id":"demo-layout-0-1","name":"Демо_1440x480_5с_TEST_pos","durationSec":5,"elements":[{"properties":[{"key":"x","value":40},{"key":"y","value":420},{"key":"w","value":1360},{"key":"h","value":34},{"key":"fontSize","value":34},{"key":"fontWeight","value":300},{"key":"text","value":""},{"key":"theme","value":"dark"},{"key":"vAlign","value":"bottom"},{"key":"align","value":"left"},{"key":"shadowEnabled","value":false},{"key":"shadowOpacity","value":0.22},{"key":"shadowHeight","value":0.45},{"key":"shadowBlur","value":0.6},{"key":"shadowColor","value":"#000000"}],"title":"Дисклеймер","type":"disclaimer"},{"properties":[{"key":"fadeEnabled","value":true},{"key":"h","value":192,"visibility":"public"},{"key":"fadeOpacity","value":30},{"key":"fadeColor","value":"#000000"},{"key":"fadePosition","value":"bottom"},{"key":"gradientStops","value":""},{"key":"gradientStart","value":""},{"key":"gradientEnd","value":""}],"title":"Градиент подложка","type":"fade"},{"properties":[{"key":"x","value":392.41},{"key":"y","value":12.98},{"key":"w","value":696.45},{"key":"h","value":447.36},{"key":"contentUrl","value":""},{"key":"imageScale","value":100}],"title":"Изображение товара","type":"product-image"},{"properties":[{"key":"x","value":1240},{"key":"y","value":360},{"key":"h","value":80},{"key":"color","value":"#FF00FF"},{"key":"textColor","value":"#FFFFFF"},{"key":"animationEnabled","value":true}],"title":"Лого WB","type":"wb-logo"},{"properties":[{"key":"x","value":41.29},{"key":"y","value":174.35},{"key":"h","value":171.35},{"key":"text","value":""},{"key":"shadowEnabled","value":false},{"key":"shadowOpacity","value":0.16},{"key":"shadowHeight","value":0.35},{"key":"shadowBlur","value":0.6},{"key":"shadowColor","value":"#000000"}],"title":"Цена и кнопка","type":"cta"},{"properties":[{"key":"x","value":1097.56},{"key":"y","value":45.42},{"key":"h","value":93.23},{"key":"text","value":""},{"key":"color","value":"#FFFF00"},{"key":"textColor","value":"#000000"},{"key":"enabled","value":true},{"key":"rotation","value":0},{"key":"animationEnabled","value":true},{"key":"animationSide","value":"left"}],"title":"Скидка","type":"discount"}]}],"settings":{"mode":"mono","safeZones":[{"key":"top","value":0},{"key":"left","value":0},{"key":"right","value":0},{"key":"bottom","value":0}],"maxOutputVideoSizeBytes":9961472}}]}</script>
+<script src="engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  var E = window.ProductCentering;
+  var $ = function (id) { return document.getElementById(id); };
+  var DEF = E.DEFAULT_OPTIONS;
+
+  var S = {
+    project: null, fileName: null, isSample: true,
+    layoutId: null, applyAll: false,
+    png: null,
+    opts: JSON.parse(JSON.stringify(DEF)),
+    out: null, current: null
+  };
+
+  // ---------- загрузка JSON ----------
+  function setProject(obj, fileName, isSample) {
+    if (!obj || !Array.isArray(obj.scenes)) throw new Error('это не похоже на экспорт проекта: нет поля scenes');
+    S.project = obj; S.fileName = fileName; S.isSample = !!isSample;
+    var layouts = E.listLayouts(obj);
+    var withProduct = layouts.filter(function (l) { return l.hasProduct; });
+    var pick = withProduct.filter(function (l) { return /TEST_pos/i.test(l.layoutName); })[0] || withProduct[0] || layouts[0];
+    S.layoutId = pick ? pick.layoutId : null;
+    fillLayoutSelect(layouts);
+    var proj = obj.project || {};
+    $('json-status').innerHTML = '';
+    var a = document.createElement('div');
+    a.innerHTML = '<strong></strong>';
+    a.firstChild.textContent = isSample ? 'Пример' : (fileName || 'JSON из текста');
+    var b = document.createElement('div');
+    b.textContent = 'Проект «' + (proj.name || 'без названия') + '»: сцен ' + obj.scenes.length + ', лейаутов ' + layouts.length + ', с фото товара ' + withProduct.length;
+    $('json-status').append(a, b);
+    $('sample-banner').hidden = !isSample;
+    $('json-error').hidden = true;
+    recompute();
+  }
+  function showJsonError(msg) { $('json-error').textContent = 'Не получилось прочитать JSON: ' + msg; $('json-error').hidden = false; }
+  function readJsonFile(file) {
+    file.text().then(function (t) {
+      try { setProject(JSON.parse(t), file.name, false); } catch (e) { showJsonError(e.message); }
+    });
+  }
+  $('json-file').addEventListener('change', function (e) { var f = e.target.files[0]; if (f) readJsonFile(f); e.target.value = ''; });
+  $('paste-apply').addEventListener('click', function () {
+    try { setProject(JSON.parse($('paste-text').value), null, false); $('paste').open = false; }
+    catch (e) { showJsonError(e.message); }
+  });
+  var drop = $('drop');
+  ['dragenter', 'dragover'].forEach(function (t) { drop.addEventListener(t, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (t) { drop.addEventListener(t, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) {
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    if (/^image\//.test(f.type)) loadPng(f); else readJsonFile(f);
+  });
+
+  function fillLayoutSelect(layouts) {
+    var sel = $('layout-select'); sel.innerHTML = '';
+    var groups = {};
+    layouts.forEach(function (l) {
+      var key = (l.sceneName || 'Сцена') + ' · ' + l.canvas.width + '×' + l.canvas.height;
+      (groups[key] = groups[key] || []).push(l);
+    });
+    Object.keys(groups).forEach(function (g) {
+      var og = document.createElement('optgroup'); og.label = g;
+      groups[g].forEach(function (l) {
+        var o = document.createElement('option');
+        o.value = l.layoutId; o.textContent = l.layoutName + (l.hasProduct ? '' : ' — нет фото товара');
+        o.disabled = !l.hasProduct; o.selected = l.layoutId === S.layoutId;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
+    });
+  }
+  $('layout-select').addEventListener('change', function (e) { S.layoutId = e.target.value; recompute(); });
+  $('apply-all').addEventListener('change', function (e) { S.applyAll = e.target.checked; recompute(); });
+
+  // ---------- PNG ----------
+  function loadPng(file) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var iw = img.naturalWidth, ih = img.naturalHeight;
+      var k = Math.min(1, 512 / Math.max(iw, ih));
+      var w = Math.max(1, Math.round(iw * k)), h = Math.max(1, Math.round(ih * k));
+      var c = document.createElement('canvas'); c.width = w; c.height = h;
+      var ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, w, h);
+      var d = ctx.getImageData(0, 0, w, h).data;
+      var rows = new Uint32Array(h), cols = new Uint32Array(w), opaque = 0;
+      for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
+        if (d[(y * w + x) * 4 + 3] >= 26) { rows[y]++; cols[x]++; opaque++; }
+      }
+      if (!opaque) { pngError('PNG полностью прозрачный'); return; }
+      // Обрезка по проекциям: одиночные пиксели-«мусор» по краям не расширяют рамку
+      var rmin = Math.max(1, Math.round(w * 0.002)), cmin = Math.max(1, Math.round(h * 0.002));
+      var y0 = 0, y1 = h - 1, x0 = 0, x1 = w - 1;
+      while (y0 < h && rows[y0] < rmin) y0++;
+      while (y1 > y0 && rows[y1] < rmin) y1--;
+      while (x0 < w && cols[x0] < cmin) x0++;
+      while (x1 > x0 && cols[x1] < cmin) x1--;
+      if (y0 >= h || x0 >= w) { y0 = 0; y1 = h - 1; x0 = 0; x1 = w - 1; }
+      var trim = { x: x0 / k, y: y0 / k, w: (x1 - x0 + 1) / k, h: (y1 - y0 + 1) / k };
+      var noAlpha = opaque === w * h;
+      // Копия до 256 px по длинной стороне — для разбора силуэта на массу и тонкие части
+      var k2 = Math.min(1, 256 / Math.max(iw, ih));
+      var mw = Math.max(1, Math.round(iw * k2)), mh = Math.max(1, Math.round(ih * k2));
+      var c2 = document.createElement('canvas'); c2.width = mw; c2.height = mh;
+      var x2 = c2.getContext('2d', { willReadFrequently: true });
+      x2.drawImage(img, 0, 0, mw, mh);
+      var d2 = x2.getImageData(0, 0, mw, mh).data, alpha = new Uint8Array(mw * mh);
+      for (var q = 0; q < mw * mh; q++) alpha[q] = d2[q * 4 + 3];
+      S.png = { img: img, url: url, width: iw, height: ih, trim: trim, name: file.name, noAlpha: noAlpha, alpha: alpha, mw: mw, mh: mh };
+      $('png-thumb').src = url; $('png-thumb').hidden = false; $('png-clear').hidden = false; $('png-error').hidden = true;
+      analyzePng();
+      recompute();
+    };
+    img.onerror = function () { pngError('файл не читается как изображение'); };
+    img.src = url;
+  }
+  function pngError(msg) { $('png-error').textContent = 'PNG: ' + msg; $('png-error').hidden = false; }
+
+  // Масса и тонкие части + полупрозрачная раскраска для превью
+  function analyzePng() {
+    var p = S.png; if (!p) return;
+    p.analysis = E.analyzeProduct(p.alpha, p.mw, p.mh, p.width, p.height, S.opts);
+    p.overlay = null;
+    var a = p.analysis;
+    if (a) {
+      var c = document.createElement('canvas'); c.width = p.mw; c.height = p.mh;
+      var cx = c.getContext('2d'), id = cx.createImageData(p.mw, p.mh);
+      for (var i = 0; i < p.mw * p.mh; i++) {
+        if (!a.mask[i]) continue;
+        var o = i * 4;
+        if (a.core[i]) { id.data[o] = 20; id.data[o + 1] = 190; id.data[o + 2] = 120; id.data[o + 3] = 95; }
+        else { id.data[o] = 255; id.data[o + 1] = 140; id.data[o + 2] = 0; id.data[o + 3] = 185; }
+      }
+      cx.putImageData(id, 0, 0);
+      p.overlay = c;
+    }
+    renderPngStatus();
+  }
+  function renderPngStatus() {
+    var p = S.png, st = $('png-status');
+    st.innerHTML = '';
+    if (!p) { st.textContent = 'PNG не загружен'; return; }
+    var pct = function (v) { return Math.round(v * 100) + '%'; }, t = p.trim;
+    var n = document.createElement('strong'); n.textContent = p.name;
+    var m = document.createElement('div');
+    m.textContent = p.width + '×' + p.height + ' px · видимая часть ' + Math.round(t.w) + '×' + Math.round(t.h) +
+      ' · поля: слева ' + pct(t.x / p.width) + ', справа ' + pct(1 - (t.x + t.w) / p.width) + ', сверху ' + pct(t.y / p.height) + ', снизу ' + pct(1 - (t.y + t.h) / p.height);
+    var a = p.analysis, m2 = document.createElement('div');
+    if (!a) m2.textContent = 'Силуэт не разобран — товар встанет по видимой части.';
+    else if (a.fallback) m2.textContent = 'Товар целиком тонкий (провод, цепочка) — массой считается весь силуэт.';
+    else if (a.thinShare < 0.01) m2.textContent = 'Тонких частей нет — масса = весь силуэт.';
+    else m2.textContent = 'Масса — ' + pct(a.coreShare) + ' силуэта, тонкие части — ' + pct(a.thinShare) + '.';
+    st.append(n, m, m2);
+    if (p.noAlpha) { var w2 = document.createElement('div'); w2.textContent = 'У PNG нет прозрачного фона — центрируется весь файл.'; st.append(w2); }
+  }
+  $('png-file').addEventListener('change', function (e) { var f = e.target.files[0]; if (f) loadPng(f); e.target.value = ''; });
+  $('png-clear').addEventListener('click', function () {
+    S.png = null; $('png-thumb').hidden = true; $('png-clear').hidden = true; renderPngStatus(); recompute();
+  });
+
+  // ---------- параметры ----------
+  function syncOptionInputs() {
+    $('opt-margin').value = S.opts.margin; $('opt-padding').value = S.opts.padding;
+    $('opt-aspect').value = String(S.opts.productAspect);
+    if ($('opt-aspect').value !== String(S.opts.productAspect)) $('opt-aspect').value = '1';
+    $('opt-f-logo').value = S.opts.widthFactors['wb-logo']; $('opt-f-discount').value = S.opts.widthFactors.discount;
+    $('opt-f-cta').value = S.opts.widthFactors.cta; $('opt-minside').value = S.opts.minSide;
+    $('opt-disclaimer').checked = S.opts.disclaimerIsObstacle; $('opt-safe').checked = S.opts.useSafeZones;
+    $('opt-split').checked = S.opts.splitHeadlineIsSoft;
+    $('opt-clearance').value = S.opts.clearance; $('opt-fill').value = Math.round(S.opts.fill * 100);
+    $('opt-thin').value = Math.round(S.opts.thinRatio * 100); $('opt-crop').checked = S.opts.thinCrop;
+  }
+  function readNum(id, fallback) { var v = parseFloat($(id).value); return isFinite(v) ? v : fallback; }
+  function onOptions() {
+    S.opts.margin = readNum('opt-margin', DEF.margin);
+    S.opts.padding = readNum('opt-padding', DEF.padding);
+    S.opts.productAspect = readNum('opt-aspect', 1);
+    S.opts.widthFactors['wb-logo'] = readNum('opt-f-logo', DEF.widthFactors['wb-logo']);
+    S.opts.widthFactors.discount = readNum('opt-f-discount', DEF.widthFactors.discount);
+    S.opts.widthFactors.cta = readNum('opt-f-cta', DEF.widthFactors.cta);
+    S.opts.minSide = readNum('opt-minside', DEF.minSide);
+    S.opts.disclaimerIsObstacle = $('opt-disclaimer').checked;
+    S.opts.useSafeZones = $('opt-safe').checked;
+    S.opts.splitHeadlineIsSoft = $('opt-split').checked;
+    S.opts.clearance = Math.max(0, readNum('opt-clearance', DEF.clearance));
+    S.opts.fill = Math.min(100, Math.max(40, readNum('opt-fill', DEF.fill * 100))) / 100;
+    S.opts.thinCrop = $('opt-crop').checked;
+    var thin = Math.min(60, Math.max(5, readNum('opt-thin', DEF.thinRatio * 100))) / 100;
+    if (thin !== S.opts.thinRatio) { S.opts.thinRatio = thin; analyzePng(); }
+    recompute();
+  }
+  ['opt-margin', 'opt-padding', 'opt-aspect', 'opt-f-logo', 'opt-f-discount', 'opt-f-cta', 'opt-minside', 'opt-disclaimer', 'opt-safe', 'opt-split',
+   'opt-clearance', 'opt-fill', 'opt-thin', 'opt-crop']
+    .forEach(function (id) { $(id).addEventListener('change', onOptions); $(id).addEventListener('input', onOptions); });
+  $('opt-reset').addEventListener('click', function () { S.opts = JSON.parse(JSON.stringify(DEF)); syncOptionInputs(); analyzePng(); recompute(); });
+
+  // ---------- расчёт ----------
+  function productInfo() { return S.png ? { width: S.png.width, height: S.png.height, trim: S.png.trim, analysis: S.png.analysis } : null; }
+  function recompute() {
+    if (!S.project) return;
+    var all = E.listLayouts(S.project).filter(function (l) { return l.hasProduct; }).map(function (l) { return l.layoutId; });
+    var ids = S.applyAll ? all : (S.layoutId ? [S.layoutId] : []);
+    S.out = E.applyToProject(S.project, ids, S.opts, productInfo());
+    S.current = S.out.results.filter(function (r) { return r.layoutId === S.layoutId; })[0] ||
+      (S.layoutId ? E.computeLayout(S.project, S.layoutId, S.opts, productInfo()) : null);
+    render();
+  }
+
+  // ---------- вывод ----------
+  function fmt(v) { return v === null || v === undefined ? '—' : (Math.round(v * 100) / 100).toFixed(2).replace(/\.00$/, ''); }
+  function signed(v) { if (v === null || !isFinite(v)) return '—'; var s = fmt(v); return v > 0 ? '+' + s : s; }
+
+  function render() {
+    var r = S.current;
+    var meta = $('layout-meta'); meta.textContent = '';
+    if (r && r.canvas) {
+      var st = document.createElement('strong'); st.textContent = r.layoutName || '';
+      meta.append(st, document.createTextNode(' · ' + (r.sceneName || '') + ' · ' + r.canvas.width + '×' + r.canvas.height));
+    }
+    drawPreview();
+    renderTable();
+    renderNotes();
+    renderElements();
+    renderOutput();
+  }
+
+  function renderTable() {
+    var box = $('result-table'); box.innerHTML = '';
+    var chip = $('result-chip');
+    var okResults = S.out ? S.out.results.filter(function (x) { return x.ok; }) : [];
+    chip.hidden = !S.out || !S.out.results.length;
+    chip.textContent = 'изменено лейаутов: ' + okResults.length;
+    var t = document.createElement('table');
+    if (S.applyAll && S.out && S.out.results.length) {
+      t.innerHTML = '<thead><tr><th>Лейаут</th><th>x</th><th>y</th><th>w</th><th>h</th></tr></thead>';
+      var tb = document.createElement('tbody');
+      S.out.results.forEach(function (x) {
+        var tr = document.createElement('tr');
+        var td0 = document.createElement('td'); td0.textContent = x.layoutName || x.layoutId; tr.appendChild(td0);
+        if (x.ok) ['x', 'y', 'w', 'h'].forEach(function (k) { var td = document.createElement('td'); td.className = 'num'; td.textContent = fmt(x.after[k]); tr.appendChild(td); });
+        else { var td = document.createElement('td'); td.colSpan = 4; td.textContent = x.error; tr.appendChild(td); }
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb);
+    } else if (S.current && S.current.ok) {
+      var r = S.current;
+      t.innerHTML = '<thead><tr><th>Контейнер</th><th>x</th><th>y</th><th>w</th><th>h</th></tr></thead>';
+      var tb2 = document.createElement('tbody');
+      [['Было', r.before, ''], ['Стало', r.after, 'after'], ['Разница', null, 'delta']].forEach(function (row) {
+        var tr = document.createElement('tr'); tr.className = row[2];
+        var td0 = document.createElement('td'); td0.textContent = row[0]; tr.appendChild(td0);
+        ['x', 'y', 'w', 'h'].forEach(function (k) {
+          var td = document.createElement('td'); td.className = 'num';
+          td.textContent = row[1] ? fmt(row[1][k]) : signed(r.after[k] - r.before[k]);
+          tr.appendChild(td);
+        });
+        tb2.appendChild(tr);
+      });
+      t.appendChild(tb2);
+    } else {
+      var p = document.createElement('p'); p.className = 'error';
+      p.textContent = S.current ? S.current.error : 'Выберите лейаут с фото товара';
+      box.appendChild(p); return;
+    }
+    box.appendChild(t);
+  }
+
+  function renderNotes() {
+    var ul = $('notes'); ul.innerHTML = '';
+    var r = S.current; if (!r || !r.items) return;
+    var add = function (text, warn) { var li = document.createElement('li'); li.textContent = text; if (warn) li.className = 'warn'; ul.appendChild(li); };
+    if (r.ok && r.mode === 'mass') {
+      var mb = r.mass.massBox;
+      add('Масса товара: ' + Math.round(mb.w) + '×' + Math.round(mb.h) + ' px, воздух до элементов — от ' + r.mass.clearance + ' px. ' +
+        (r.mass.centered ? 'Товар стоит по центру холста.' : 'По центру товар не помещается — стоит там, где хватает места.'));
+    } else if (r.ok) {
+      var c = r.chosen;
+      add('Свободное место для товара: ' + Math.round(c.w) + '×' + Math.round(c.h) + ' px, центр — (' + Math.round(c.x + c.w / 2) + ', ' + Math.round(c.y + c.h / 2) + ').');
+      if (!S.png) add('Загрузите PNG товара (шаг 3) — тогда крупно и по центру встанет масса товара, а ручки и прозрачные поля не будут её сдвигать.');
+    }
+    var guessed = r.items.filter(function (it) { return it.info.source === 'factor' || it.info.source === 'text'; }).length;
+    if (guessed) add('Размеры ' + guessed + ' элем. оценены (в JSON нет ширины или высоты) — см. таблицу ниже.');
+    (r.infos || []).forEach(function (w) { add(w, false); });
+    (r.warnings || []).forEach(function (w) { add(w, true); });
+  }
+
+  var ROLE_TEXT = { obstacle: 'товар обходит', soft: 'товар может заходить', ignore: 'не учитывается', target: 'пересчитывается' };
+  var SRC_TEXT = { json: 'из JSON', factor: 'оценка по высоте', text: 'оценка по тексту' };
+  function renderElements() {
+    var box = $('elements-table'); box.innerHTML = '';
+    var r = S.current; if (!r || !r.items) return;
+    var t = document.createElement('table'); t.className = 'elements';
+    t.innerHTML = '<thead><tr><th>Элемент</th><th>Как учитывается</th><th>Размер, px</th><th>Откуда размер</th></tr></thead>';
+    var tb = document.createElement('tbody');
+    r.items.forEach(function (it) {
+      var i = it.info, tr = document.createElement('tr');
+      var size = i.box ? Math.round(i.box.w) + '×' + Math.round(i.box.h) : (i.role === 'target' && r.ok ? Math.round(r.after.w) + '×' + Math.round(r.after.h) : '—');
+      var src = i.source ? SRC_TEXT[i.source] : (i.notes[0] || '');
+      [i.name, ROLE_TEXT[i.role] || i.role, size, src].forEach(function (c, k) {
+        var td = document.createElement('td'); td.textContent = c; if (k === 2) td.className = 'num'; tr.appendChild(td);
+      });
+      if (i.notes.length) tr.title = i.notes.join('; ');
+      if (i.role === 'ignore') tr.className = 'muted';
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); box.appendChild(t);
+  }
+
+  function outText() { return S.out ? JSON.stringify(S.out.project, null, 2) : ''; }
+  function outName() {
+    var base = (S.fileName || 'layouts-import.json').replace(/\.json$/i, '');
+    return base + '-centered.json';
+  }
+  function renderOutput() {
+    var ok = S.out && S.out.results.some(function (x) { return x.ok; });
+    var usable = ok && !S.isSample;
+    $('out-text').value = ok ? outText() : '';
+    $('download').disabled = !usable; $('copy').disabled = !usable;
+    $('download').title = S.isSample ? 'Загрузите свой JSON — для примера файл не выдаётся' : '';
+    $('copy').title = $('download').title;
+  }
+
+  var toastTimer;
+  function toast(msg) { $('toast').textContent = msg; clearTimeout(toastTimer); toastTimer = setTimeout(function () { $('toast').textContent = ''; }, 4000); }
+
+  // Скачивание через возможность downloads: окно подтверждения показывает платформа
+  var downloadsApi = null, plainBrowser = !window.claude;
+  if (window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('downloads').then(function (api) { downloadsApi = api; $('download').hidden = !api; }).catch(function () {});
+  } else if (plainBrowser) {
+    $('download').hidden = false;   // обычный браузер (свой сервер, GitHub Pages): скачивание ссылкой
+  }
+  $('download').addEventListener('click', function () {
+    if (!downloadsApi && plainBrowser) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([outText()], { type: 'application/json' }));
+      a.download = outName();
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+      toast('Файл сохранён: ' + outName());
+      return;
+    }
+    if (!downloadsApi) return;
+    downloadsApi.save({ filename: outName(), data: outText() }).then(function (res) {
+      toast(res && res.status === 'delivered' ? 'Файл передан' : 'Файл сохранён: ' + outName());
+    }).catch(function (e) {
+      if (e && e.code === 'declined') toast('Сохранение отменено');
+      else if (e && e.code === 'rate_limited') toast('Окно сохранения уже открыто');
+      else { toast('Скачать не получилось — скопируйте JSON кнопкой рядом'); }
+    });
+  });
+  $('copy').addEventListener('click', function () {
+    var text = outText();
+    var fallback = function () {
+      var ta = $('out-text'); ta.closest('details').open = true; ta.focus(); ta.select();
+      toast('Текст выделен — нажмите Ctrl+C / ⌘C');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast('JSON скопирован'); }, fallback);
+    } else fallback();
+  });
+
+  // ---------- превью ----------
+  var show = { before: true, free: true, boxes: false, mass: true };
+  [['show-before', 'before'], ['show-free', 'free'], ['show-boxes', 'boxes'], ['show-mass', 'mass']].forEach(function (p) {
+    $(p[0]).addEventListener('change', function (e) { show[p[1]] = e.target.checked; drawPreview(); });
+  });
+
+  function rr(ctx, x, y, w, h, r) {
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function textFit(ctx, text, x, y, maxW, size, weight, color, align) {
+    var fs = size;
+    ctx.font = weight + ' ' + fs + 'px ' + getComputedStyle(document.body).fontFamily;
+    while (ctx.measureText(text).width > maxW && fs > 6) { fs -= 1; ctx.font = weight + ' ' + fs + 'px ' + getComputedStyle(document.body).fontFamily; }
+    ctx.fillStyle = color; ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y);
+  }
+
+  function drawElement(ctx, it) {
+    var el = it.el, info = it.info, p = E.propsOf(el), b = info.box;
+    if (!b) return;
+    var t = el.type;
+    ctx.save();
+    var rot = (+p.rotation || 0) * Math.PI / 180;
+    if (t === 'discount') {
+      var h = +p.h, w = h * (S.opts.widthFactors.discount || 2.5), x = +p.x, y = +p.y;
+      ctx.translate(x + w / 2, y + h / 2); ctx.rotate(rot);
+      rr(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.fillStyle = p.color || '#FFFF00'; ctx.fill();
+      textFit(ctx, 'до ' + (p.text !== '' && p.text != null ? p.text : 30) + '%', 0, 0, w * 0.8, h * 0.55, 800, p.textColor || '#000', 'center');
+    } else if (t === 'wb-logo') {
+      rr(ctx, b.x, b.y, b.w, b.h, b.h / 2); ctx.fillStyle = p.color || '#FF00FF'; ctx.fill();
+      textFit(ctx, 'wb', b.x + b.w / 2, b.y + b.h / 2, b.w * 0.8, b.h * 0.62, 800, p.textColor || '#fff', 'center');
+    } else if (t === 'cta') {
+      textFit(ctx, 'от 1 099 ₽', b.x, b.y + b.h * 0.25, b.w * 0.98, b.h * 0.36, 800, '#ffffff', 'left');
+      var bx = b.x + b.w * 0.16, by = b.y + b.h * 0.57, bw = b.w * 0.84, bh = b.h * 0.43;
+      rr(ctx, bx, by, bw, bh, bh / 2); ctx.fillStyle = '#E934F0'; ctx.fill();
+      textFit(ctx, 'купить', bx + bw / 2, by + bh / 2, bw * 0.7, bh * 0.42, 700, '#ffffff', 'center');
+    } else if (t === 'disclaimer') {
+      var fs = +p.fontSize || b.h;
+      ctx.font = '300 ' + fs + 'px ' + getComputedStyle(document.body).fontFamily;
+      ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      var txt = (p.text && String(p.text).trim()) || 'ДИСКЛЕЙМЕР';
+      ctx.fillText(txt, b.x, b.y + b.h - fs * 0.18, b.w);
+    } else if (t === 'age-disclaimer') {
+      textFit(ctx, String(p.text || '18+'), b.x, b.y + b.h / 2, b.w, b.h * 0.8, 700, p.color || '#fff', 'left');
+    } else if (t === 'headline' || t === 'product-description') {
+      var isH = t === 'headline';
+      var fsz = +p.fontSize || (isH ? 172 : 64), lh = +p.lineHeight || (isH ? 0.81 : 1);
+      var lines = (String(p.text || '').trim() ? String(p.text) : (isH ? 'Заголовок' : 'Название и описание товара')).split('\n');
+      var al = p.align === 'center' ? 'center' : (p.align === 'right' ? 'right' : 'left');
+      ctx.font = (isH ? 900 : 500) + ' ' + fsz + 'px ' + getComputedStyle(document.body).fontFamily;
+      ctx.fillStyle = p.color || '#ffffff'; ctx.textBaseline = 'top'; ctx.textAlign = al;
+      var ax = al === 'center' ? b.x + b.w / 2 : (al === 'right' ? b.x + b.w : b.x);
+      lines.forEach(function (line, i) { ctx.fillText(line, ax, b.y + i * fsz * lh, b.w); });
+    } else if (t === 'strikethrough-price' || t === 'price-badge') {
+      var isBadge = t === 'price-badge';
+      var ptxt = (p.text !== '' && p.text != null && String(p.text).trim()) ? String(p.text) : (isBadge ? '6 490 ₽' : '10 314 ₽');
+      if (isBadge) { rr(ctx, b.x, b.y, b.w, b.h, b.h * 0.2); ctx.fillStyle = p.color || '#F6FE00'; ctx.fill(); }
+      textFit(ctx, ptxt, b.x + b.w / 2, b.y + b.h / 2, b.w * 0.94, b.h * 0.78, 900, isBadge ? (p.textColor || '#000') : (p.color || '#ffffff'), 'center');
+      if (!isBadge) { ctx.fillStyle = p.shadowColor || '#FE47EC'; ctx.fillRect(b.x, b.y + b.h * 0.56, b.w, Math.max(4, b.h * 0.08)); }
+    } else if (t === 'brand-badge' || t === 'bank-badge') {
+      var isBrand = t === 'brand-badge';
+      rr(ctx, b.x, b.y, b.w, b.h, Math.min(+p.radius || 18, b.h / 2)); ctx.fillStyle = isBrand ? '#ffffff' : (p.color || '#09432e'); ctx.fill();
+      var btxt = String(p.text || '').trim() ? String(p.text).split('\n')[0] : (isBrand ? 'БРЕНД' : 'выгоднее с WB Банком');
+      textFit(ctx, btxt, b.x + b.w / 2, b.y + b.h / 2, b.w * 0.85, b.h * 0.4, 600, isBrand ? (p.textColor || '#171717') : (p.textColor || '#ffffff'), 'center');
+    } else {
+      rr(ctx, b.x, b.y, b.w, b.h, Math.min(+p.radius || 12, b.h / 2)); ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fill();
+      textFit(ctx, info.name, b.x + b.w / 2, b.y + b.h / 2, b.w * 0.9, Math.min(28, b.h * 0.3), 600, '#222', 'center');
+    }
+    ctx.restore();
+  }
+
+  function dashedRect(ctx, r, color, lw, dash) {
+    ctx.save(); ctx.setLineDash(dash); ctx.lineWidth = lw; ctx.strokeStyle = color; ctx.strokeRect(r.x, r.y, r.w, r.h); ctx.restore();
+  }
+  function label(ctx, text, x, y, bg, fg, k) {
+    ctx.save(); ctx.font = '600 ' + (13 / k) + 'px ' + getComputedStyle(document.body).fontFamily;
+    var w = ctx.measureText(text).width + 10 / k, h = 20 / k;
+    ctx.fillStyle = bg; rr(ctx, x, y, w, h, 4 / k); ctx.fill();
+    ctx.fillStyle = fg; ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillText(text, x + 5 / k, y + h / 2);
+    ctx.restore();
+  }
+
+  function drawPreview() {
+    var cv = $('preview'), r = S.current;
+    var ctx = cv.getContext('2d');
+    if (!r || !r.canvas) { cv.width = 10; cv.height = 10; return; }
+    var W = r.canvas.width, H = r.canvas.height;
+    var avail = $('stage').clientWidth - 20;
+    var maxH = Math.max(240, Math.min(window.innerHeight * 0.62, 760));
+    var k = Math.min(avail / W, maxH / H);
+    var dpr = window.devicePixelRatio || 1;
+    cv.style.width = Math.round(W * k) + 'px'; cv.style.height = Math.round(H * k) + 'px';
+    cv.width = Math.round(W * k * dpr); cv.height = Math.round(H * k * dpr);
+    ctx.setTransform(k * dpr, 0, 0, k * dpr, 0, 0);
+
+    $('show-mass-wrap').hidden = !S.png;
+    document.querySelectorAll('.legend .png-only').forEach(function (el) { el.hidden = !S.png; });
+    var items = r.items || [];
+    var bgItem = items.filter(function (it) { return it.el.type === 'background'; })[0];
+    ctx.fillStyle = (bgItem && E.propsOf(bgItem.el).color) || '#A3D9C4';
+    ctx.fillRect(0, 0, W, H);
+
+    items.forEach(function (it) {
+      if (it.el.type !== 'fade') return;
+      var p = E.propsOf(it.el); if (p.fadeEnabled === false) return;
+      var fh = +p.h || H * 0.4, op = (+p.fadeOpacity || 30) / 100;
+      var g = ctx.createLinearGradient(0, H - fh, 0, H);
+      var col = p.fadeColor || '#000000';
+      g.addColorStop(0, hexA(col, 0)); g.addColorStop(1, hexA(col, op));
+      ctx.fillStyle = g; ctx.fillRect(0, H - fh, W, fh);
+    });
+
+    if (r.ok && show.free) {
+      ctx.save();
+      ctx.beginPath();
+      r.rects.forEach(function (q) { ctx.rect(q.x, q.y, q.w, q.h); });
+      ctx.fillStyle = 'rgba(31,154,92,0.16)'; ctx.fill('nonzero');
+      if (r.mode !== 'mass') dashedRect(ctx, r.chosen, 'rgba(18,120,70,0.9)', 2 / k, [8 / k, 6 / k]);
+      ctx.restore();
+    }
+
+    // Товар — нижний слой, элементы рисуются поверх
+    if (r.ok) {
+      if (S.png) {
+        ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+        ctx.drawImage(S.png.img, r.after.x, r.after.y, r.after.w, r.after.h);
+        if (show.mass && r.mode === 'mass' && S.png.overlay) ctx.drawImage(S.png.overlay, r.after.x, r.after.y, r.after.w, r.after.h);
+        ctx.restore();
+      } else {
+        var v = r.visible;
+        ctx.save();
+        rr(ctx, v.x, v.y, v.w, v.h, Math.min(v.w, v.h) * 0.08);
+        ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+        ctx.lineWidth = 2 / k; ctx.strokeStyle = 'rgba(40,40,40,0.35)'; ctx.stroke();
+        textFit(ctx, 'фото товара', v.x + v.w / 2, v.y + v.h / 2, v.w * 0.8, Math.min(40, v.h * 0.1), 600, 'rgba(30,30,30,.55)', 'center');
+        ctx.restore();
+      }
+    }
+
+    items.forEach(function (it) { if (it.info.box && it.info.role !== 'ignore') drawElement(ctx, it); });
+
+    if (show.boxes) {
+      items.forEach(function (it) {
+        var b = it.info.box; if (!b) return;
+        dashedRect(ctx, b, it.info.role === 'soft' ? 'rgba(214,69,61,.6)' : '#d6453d', 1.5 / k, it.info.role === 'soft' ? [5 / k, 4 / k] : []);
+      });
+    }
+    if (r.ok && r.mode === 'mass' && show.mass) {
+      dashedRect(ctx, r.mass.massBox, 'rgba(12,140,90,0.95)', 2 / k, [8 / k, 6 / k]);
+      label(ctx, 'масса', r.mass.massBox.x, Math.max(0, r.mass.massBox.y - 22 / k), 'rgba(12,140,90,0.95)', '#fff', k);
+    }
+    if (r.before && show.before && r.before.x !== null) {
+      dashedRect(ctx, r.before, 'rgba(60,60,60,.85)', 2 / k, [10 / k, 6 / k]);
+      label(ctx, 'было', r.before.x, Math.max(0, r.before.y - 22 / k), 'rgba(60,60,60,.85)', '#fff', k);
+    }
+    if (r.ok) {
+      var accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#a3127a';
+      ctx.save(); ctx.lineWidth = 3 / k; ctx.strokeStyle = accent; ctx.strokeRect(r.after.x, r.after.y, r.after.w, r.after.h); ctx.restore();
+      label(ctx, 'стало', r.after.x + r.after.w - 52 / k, Math.min(H - 22 / k, r.after.y + r.after.h + 4 / k), accent, '#fff', k);
+    }
+  }
+  function hexA(hex, a) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return 'rgba(0,0,0,' + a + ')';
+    var n = parseInt(m[1], 16);
+    return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+
+  var resizeTimer;
+  window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawPreview, 80); });
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', drawPreview);
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawPreview);
+
+  // ---------- старт: пример ----------
+  syncOptionInputs();
+  try { setProject(JSON.parse($('sample-json').textContent), null, true); }
+  catch (e) { showJsonError(e.message); }
+})();
+</script>
+</body>
+</html>
