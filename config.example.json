@@ -38,9 +38,16 @@
     "airOk": 0.5,
     "smallPartRatio": 0.08,
     "thinOnlyRatio": 0.15,
+    "thinLength": 0.06,
+    "fringe": 0.8,
+    "thinUnderMax": 0,
+    "thinUnderKeep": 0.6,
     "analysisSize": 256,
-    "cutEdgeMin": 0.15,
+    "cutEdgeMin": 0.02,
+    "cutDominance": 5,
     "anchorProtect": 0.45,
-    "anchorCrop": 0.2
+    "anchorCrop": 0.2,
+    "anchorCenterKeep": 0.6,
+    "anchorKeep": 0.7
   }
 }

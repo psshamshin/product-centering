@@ -15,6 +15,7 @@
     thinCrop: true,              // с PNG: тонкие части можно обрезать краем кадра, если масса станет крупнее в 1,5+ раза
     thinRatio: 0.22,             // с PNG: часть тоньше этой доли от самой толстой — «тонкая» (ручка, шнур)
     alphaThreshold: 26,          // пиксель PNG видим, если альфа ≥ 10%
+    anchor: 'auto',              // обрезанный край фото: 'auto' — по PNG, 'none' — не учитывать, 'bottom' | 'top' | 'left' | 'right' — задать
     minSide: 80,                 // свободные области уже этого не рассматриваем
     productAspect: 1,            // пропорции товара (ширина / высота), когда PNG нет
     disclaimerIsObstacle: false, // по умолчанию товар может уходить под дисклеймер
@@ -28,8 +29,45 @@
       'ali-price': 2.0,
       'ali-discount': 2.0,
       'aliexpress-logo': 3.5
+    },
+    // Роли по типу элемента (перекрывают встроенные ROLES): 'obstacle' | 'thin' | 'soft' | 'ignore' | 'auto'
+    //   obstacle — товар обходит целиком; thin — масса обходит, тонкие части (ручка, шнур) могут заходить под элемент;
+    //   soft — товар может заходить под элемент; ignore — не учитывается
+    roles: {},
+    // Роли отдельных слоёв — самый сильный уровень. Ключ: id элемента, 'layoutId/индекс' или 'layoutId/тип'.
+    // Значение: 'obstacle' | 'thin' | 'soft' | 'ignore' | 'auto', либо true (учитывать) / false (не учитывать).
+    layers: {},
+    // Метрики текста по типу (перекрывают TEXT_METRICS): { charW, lineH, pad, placeholder }
+    textMetrics: {},
+    // Внутренние константы алгоритма посадки по массе
+    tuning: {
+      hitTolerance: 0.004,     // доля тонких частей, которой простительно задеть элемент
+      cropNone: 0.02,          // допустимая обрезка тонких частей в режиме «целиком»
+      cropMax: 0.9,            // максимум обрезки тонких частей краем кадра
+      cropGain: 1.5,           // обрезать, только если масса крупнее во столько раз
+      centerKeep: 0.8,         // по центру, если товар не мельче этой доли от максимума
+      axisTolerance: 0.04,     // «у оси холста» — в долях ширины (не меньше 24 px)
+      balanceWeight: 0.15,     // вес баланса зазоров сверху/снизу
+      opticalBottom: 1.1,      // снизу зазор больше верхнего во столько раз
+      airDelta: 0.15,          // допуск по воздуху, доля clearance (не меньше 4 px)
+      airCap: 1,               // «комфортный» воздух сверх нормы, доля clearance
+      airOk: 0.5,              // «достаточный» воздух для выбора центра, доля clearance
+      smallPartRatio: 0.08,    // куски массы мельче этой доли от крупнейшего — тонкие части
+      thinOnlyRatio: 0.15,     // если масса меньше этой доли силуэта — массой считается весь силуэт
+      thinLength: 0.06,
+      fringe: 0.8,             // тонкое ближе fringe × порога к массе — бахрома/кромка, считается массой
+      thinUnderMax: 0,         // запасной режим: доля тонких частей, которая может уйти под ЛЮБЫЕ элементы (0 — выкл; обычно это решают роли 'thin')
+      thinUnderKeep: 0.6,      // …и это делается, если масса по центру не мельче этой доли от максимума где угодно        // часть уже этой доли от длины силуэта — тонкая (ручка), независимо от толщины остального
+      analysisSize: 256,       // размер копии PNG для анализа, px по длинной стороне
+      cutEdgeMin: 0.02,        // край PNG считается обрезанным, если видимые пиксели занимают ≥ этой доли края
+      cutDominance: 5,         // если задеты противоположные края — обрезан тот, что задет во столько раз сильнее; иначе это плотная обрезка PNG
+      anchorProtect: 0.45,     // при привязке к краю: доля силуэта со стороны, противоположной обрезке (лицо, корпус), которая не заходит под элементы
+      anchorCrop: 0.2,         // при привязке: насколько ещё можно срезать фото краем кадра, доля видимой высоты
+      anchorCenterKeep: 0.6,   // при привязке: по центру, если фото не мельче этой доли от максимума (сбоку оно упирается в текст)
+      anchorKeep: 0.7          // прижать к краю, если так товар не мельче этой доли от варианта, где обрезанный край спрятан под элемент
     }
   };
+  var ROLE_VALUES = { obstacle: 1, thin: 1, soft: 1, ignore: 1, auto: 1 };
 
   // Роль элемента по отношению к фото товара; всё, чего нет в списке, — препятствие
   var ROLES = {
@@ -40,6 +78,9 @@
     'multi-layout-settings': 'ignore',
     'image-gallery': 'ignore',
     'disclaimer': 'soft',          // товар может уходить под него
+    'headline': 'thin',            // масса обходит, тонкие части (ручка) могут проходить под текстом
+    'strikethrough-price': 'thin',
+    'product-description': 'thin',
     'extra-disclaimer': 'soft',
     'media': 'content'             // препятствие, только если в нём есть контент
   };
@@ -79,17 +120,48 @@
   }
   function round2(v) { return Math.round(v * 100) / 100; }
   function nameOf(el) { return NAMES[el.type] || el.title || el.type; }
-  function merge(base, extra) {
-    var out = JSON.parse(JSON.stringify(base));
-    if (!extra) return out;
+  function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+  // Глубокое слияние настроек. Пришедшее значение берётся, только если оно того же типа, что и значение
+  // по умолчанию (число — конечное); иначе остаётся значение по умолчанию. Словари (roles, layers,
+  // widthFactors, textMetrics) дополняются новыми ключами.
+  function mergeInto(out, extra, base, path, warn) {
     Object.keys(extra).forEach(function (k) {
-      if (k === 'widthFactors' && extra.widthFactors) {
-        Object.keys(extra.widthFactors).forEach(function (t) { out.widthFactors[t] = extra.widthFactors[t]; });
-      } else if (extra[k] !== undefined) {
-        out[k] = extra[k];
+      var v = extra[k], d = base ? base[k] : undefined, key = path ? path + '.' + k : k;
+      if (v === undefined || v === null || (!path && k === 'warnings')) return;
+      if (isObj(d)) {
+        if (!isObj(v)) { warn.push(key + ': ожидался объект — оставлено по умолчанию'); return; }
+        out[k] = out[k] || {};
+        if (Object.keys(d).length) mergeInto(out[k], v, d, key, warn);
+        else Object.keys(v).forEach(function (kk) { if (v[kk] !== undefined && v[kk] !== null) out[k][kk] = v[kk]; });
+        return;
       }
+      if (d === undefined) {                       // ключ словаря (тип элемента, слой)
+        if (base && !path) { warn.push(key + ': неизвестный параметр — пропущен'); return; }
+        out[k] = isObj(v) ? JSON.parse(JSON.stringify(v)) : v; return;
+      }
+      if (typeof d === 'number') {
+        var n = num(v);
+        if (n === null) { warn.push(key + ': не число — оставлено ' + d); return; }
+        out[k] = n; return;
+      }
+      if (typeof d === 'boolean') {
+        if (typeof v !== 'boolean') { warn.push(key + ': ожидалось true/false — оставлено ' + d); return; }
+        out[k] = v; return;
+      }
+      out[k] = v;
     });
+  }
+  function resolveOptions(extra) {
+    var out = JSON.parse(JSON.stringify(DEFAULT_OPTIONS)), warn = [];
+    if (isObj(extra)) mergeInto(out, extra, DEFAULT_OPTIONS, '', warn);
+    out.warnings = warn;
     return out;
+  }
+  function merge(base, extra) {
+    if (extra && extra.__resolved) return extra;
+    var r = resolveOptions(extra);
+    Object.defineProperty(r, '__resolved', { value: true, enumerable: false });
+    return r;
   }
 
   // Значения по умолчанию из палитры проекта (project.layoutElements) по типу элемента
@@ -110,8 +182,9 @@
   }
 
   // Оценка размеров текстового элемента по кеглю, строкам и длине текста
-  function textSize(type, p, w, h) {
-    var m = TEXT_METRICS[type];
+  function textSize(type, p, w, h, opts) {
+    var m = Object.assign({}, TEXT_METRICS[type] || {}, (opts && opts.textMetrics && opts.textMetrics[type]) || {});
+    if (!m.charW) m = Object.assign({ placeholder: 'Текст', charW: 0.55, lineH: 1.0, pad: 0 }, m);
     var lineH = num(p.lineHeight) || m.lineH;
     var raw = (typeof p.text === 'number') ? String(p.text) : (p.text || '');
     var text = String(raw).trim() ? String(raw) : m.placeholder;
@@ -132,23 +205,56 @@
    *   role:   target | obstacle | soft | ignore
    *   source: json | factor | text — откуда взят размер
    */
-  function classify(el, opts, palette) {
+  // Роль слоя, заданная снаружи: options.layers по id, 'layoutId/индекс' или 'layoutId/тип'
+  function layerOverride(el, opts, ctx) {
+    var L = opts.layers || {}, keys = [];
+    if (el.id) keys.push(String(el.id));
+    if (ctx) { keys.push(ctx.layoutId + '/' + ctx.index); keys.push(ctx.layoutId + '/' + el.type); }
+    for (var i = 0; i < keys.length; i++) {
+      var v = L[keys[i]];
+      if (v === true) return { role: 'include', key: keys[i] };
+      if (v === false) return { role: 'ignore', key: keys[i] };
+      if (typeof v === 'string' && ROLE_VALUES[v]) return { role: v, key: keys[i] };
+    }
+    return null;
+  }
+  function defaultRole(type, opts) {
+    var r = opts.roles && opts.roles[type];
+    if (typeof r === 'string' && ROLE_VALUES[r] && r !== 'auto') return r;
+    return ROLES[type] || 'obstacle';
+  }
+
+  /*
+   * ctx (необязательно): { layoutId, index } — для настроек отдельных слоёв (options.layers).
+   * res.override — роль задана снаружи; res.defaultRole — роль без настроек слоя.
+   */
+  function classify(el, opts, palette, ctx) {
+    opts = merge(DEFAULT_OPTIONS, opts);
     var p = Object.assign({}, (palette && palette[el.type]) || {}, propsOf(el));
     var type = el.type, notes = [];
-    var role = ROLES[type] || 'obstacle';
-    var res = { type: type, name: nameOf(el), role: role, box: null, source: null, notes: notes };
+    var role = defaultRole(type, opts);
+    var res = { type: type, name: nameOf(el), role: role, box: null, source: null, notes: notes, override: null, defaultRole: role };
 
     if (role === 'target') return res;
-    if (p.enabled === false) { res.role = 'ignore'; notes.push('выключен'); return res; }
-    if (role === 'ignore') { notes.push('фон или служебный элемент'); return res; }
+    var ov = layerOverride(el, opts, ctx);
+    if (p.enabled === false && !(ov && ov.role !== 'ignore' && ov.role !== 'auto')) { res.role = 'ignore'; res.defaultRole = 'ignore'; notes.push('выключен'); return res; }
     if (role === 'content') {
-      if (!p.contentUrl) { res.role = 'ignore'; notes.push('без контента'); return res; }
-      res.role = 'obstacle';
+      role = p.contentUrl ? 'obstacle' : 'ignore';
+      if (role === 'ignore') notes.push('без контента');
     }
-    if (type === 'disclaimer' && opts.disclaimerIsObstacle) res.role = 'obstacle';
+    if (type === 'disclaimer' && opts.disclaimerIsObstacle) role = 'obstacle';
     if (type === 'headline' && p.splitByProductImage === true && opts.splitHeadlineIsSoft) {
-      res.role = 'soft'; notes.push('заголовок с разбиением по товару');
+      role = 'soft'; notes.push('заголовок с разбиением по товару');
     }
+    if (role === 'ignore' && !notes.length) notes.push('фон или служебный элемент');
+    res.defaultRole = role;
+    if (ov && ov.role !== 'auto') {
+      role = ov.role === 'include' ? (role === 'ignore' ? 'obstacle' : role) : ov.role;
+      res.override = ov.role;
+      notes.push('роль задана в настройках слоя (' + ov.key + ')');
+    }
+    res.role = role;
+    if (role === 'ignore') return res;
 
     var x = num(p.x), y = num(p.y), w = num(p.w), h = num(p.h);
 
@@ -168,8 +274,8 @@
       res.source = 'factor';
       notes.push('ширина оценена: ' + opts.widthFactors[type] + ' × h = ' + Math.round(w) + ' px');
     }
-    if ((w === null || h === null) && TEXT_METRICS[type]) {
-      var t = textSize(type, p, w, h);
+    if ((w === null || h === null) && (TEXT_METRICS[type] || (opts.textMetrics && opts.textMetrics[type]))) {
+      var t = textSize(type, p, w, h, opts);
       notes.push('размер оценён по тексту «' + t.text.replace(/\n/g, ' ') + '»: ' + Math.round(t.w) + '×' + Math.round(t.h) + ' px');
       w = t.w; h = t.h; res.source = 'text';
     }
@@ -291,7 +397,10 @@
     for (y = 0; y < mh; y++) for (x = 0; x < mw; x++) if (mask[y * mw + x]) src[(y + 1) * pw + x + 1] = 0;
     var din = sqEDT(src, pw, ph), dmax2 = 0;
     for (i = 0; i < din.length; i++) if (din[i] > dmax2) dmax2 = din[i];
-    var dmax = Math.sqrt(dmax2), r = Math.max(1.5, o.thinRatio * dmax), r2 = r * r;
+    // Порог «тонкого»: доля от толщины самой толстой части ИЛИ доля от длины всего силуэта —
+    // так длинная ручка тонкая, даже если остальной товар тоже плоский (швабра с плоской насадкой)
+    var vb = (function () { var x0 = mw, y0 = mh, x1 = -1, y1 = -1, xx, yy; for (yy = 0; yy < mh; yy++) for (xx = 0; xx < mw; xx++) if (mask[yy * mw + xx]) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; } return Math.max(x1 - x0 + 1, y1 - y0 + 1); })();
+    var dmax = Math.sqrt(dmax2), r = Math.max(1.5, o.thinRatio * dmax, o.tuning.thinLength * vb / 2), r2 = r * r;
     var er = new Uint8Array(pw * ph), erN = 0;
     for (i = 0; i < din.length; i++) if (din[i] >= r2) { er[i] = 1; erN++; }
     var core = new Uint8Array(n), coreN = 0;
@@ -302,8 +411,40 @@
         if (mask[k] && dd[(y + 1) * pw + x + 1] <= r2 + 1e-9) { core[k] = 1; coreN++; }
       }
     }
-    if (coreN) coreN = dropSmallParts(core, mw, mh, 0.08);
-    var fallback = coreN < 0.15 * count;            // товар «весь тонкий» (кабель, цепочка) — масса = весь силуэт
+    // Обрезанные края: доля видимых пикселей на крайних двух строках/столбцах PNG
+    var edgeCut = { bottom: 0, top: 0, left: 0, right: 0 }, cutSide = null, cutBest = 0;
+    (function () {
+      var c = { bottom: 0, top: 0, left: 0, right: 0 }, xx, yy;
+      for (xx = 0; xx < mw; xx++) {
+        if (mask[(mh - 1) * mw + xx] || (mh > 1 && mask[(mh - 2) * mw + xx])) c.bottom++;
+        if (mask[xx] || (mh > 1 && mask[mw + xx])) c.top++;
+      }
+      for (yy = 0; yy < mh; yy++) {
+        if (mask[yy * mw] || (mw > 1 && mask[yy * mw + 1])) c.left++;
+        if (mask[yy * mw + mw - 1] || (mw > 1 && mask[yy * mw + mw - 2])) c.right++;
+      }
+      edgeCut = { bottom: c.bottom / mw, top: c.top / mw, left: c.left / mh, right: c.right / mh };
+      var opp = { bottom: 'top', top: 'bottom', left: 'right', right: 'left' }, tu0 = o.tuning;
+      Object.keys(edgeCut).forEach(function (k) {
+        var v = edgeCut[k], w = edgeCut[opp[k]];
+        if (v < tu0.cutEdgeMin) return;
+        if (w >= tu0.cutEdgeMin && v < tu0.cutDominance * w) return;   // задеты оба противоположных края — PNG просто обрезан впритык
+        if (v > cutBest) { cutBest = v; cutSide = k; }
+      });
+    })();
+    if (coreN) coreN = dropSmallParts(core, mw, mh, o.tuning.smallPartRatio);
+    // Бахрома и короткие выступы у самой массы (ворс насадки, кромка) — тоже масса: тонкое в пределах
+    // fringe × r от массы не считается отдельной тонкой частью (её нельзя срезать краем кадра)
+    if (coreN && o.tuning.fringe > 0) {
+      var csrc = new Uint8Array(pw * ph);
+      for (y = 0; y < mh; y++) for (x = 0; x < mw; x++) if (core[y * mw + x]) csrc[(y + 1) * pw + x + 1] = 1;
+      var dc = sqEDT(csrc, pw, ph), fr2 = Math.pow(o.tuning.fringe * r, 2);
+      for (y = 0; y < mh; y++) for (x = 0; x < mw; x++) {
+        k = y * mw + x;
+        if (mask[k] && !core[k] && dc[(y + 1) * pw + x + 1] <= fr2) { core[k] = 1; coreN++; }
+      }
+    }
+    var fallback = coreN < o.tuning.thinOnlyRatio * count;            // товар «весь тонкий» (кабель, цепочка) — масса = весь силуэт
     if (fallback) { core = mask.slice(); coreN = count; }
 
     var bbox = function (m) {
@@ -349,7 +490,37 @@
       }
       return out;
     };
-    var maskBox = bbox(mask), coreBox = bbox(core);
+    var maskBox = bbox(mask), coreBox = bbox(core), thinPtsS;
+    // Край перерезан тонкой частью (ручка ушла за край) или массой (человек по пояс)?
+    var cutThin = false;
+    if (cutSide) {
+      var onEdge = 0, coreOnEdge = 0, e, ix;
+      for (e = 0; e < (cutSide === 'top' || cutSide === 'bottom' ? mw : mh); e++) {
+        for (var dd2 = 0; dd2 < 2; dd2++) {
+          if (cutSide === 'bottom') ix = (mh - 1 - dd2) * mw + e; else if (cutSide === 'top') ix = dd2 * mw + e;
+          else if (cutSide === 'left') ix = e * mw + dd2; else ix = e * mw + (mw - 1 - dd2);
+          if (mask[ix]) { onEdge++; if (core[ix]) coreOnEdge++; }
+        }
+      }
+      cutThin = onEdge > 0 && coreOnEdge < 0.5 * onEdge;
+    }
+    // Точки обрезанного края и тонкие точки между краем и массой (их можно прятать под элементы)
+    var cutPts = [], thinNear = null;
+    if (cutSide) {
+      var L2 = (cutSide === 'top' || cutSide === 'bottom') ? mw : mh;
+      for (var e2 = 0; e2 < L2; e2++) {
+        var cx2, cy2;
+        if (cutSide === 'bottom') { cx2 = e2; cy2 = mh - 1; } else if (cutSide === 'top') { cx2 = e2; cy2 = 0; }
+        else if (cutSide === 'left') { cx2 = 0; cy2 = e2; } else { cx2 = mw - 1; cy2 = e2; }
+        if (mask[cy2 * mw + cx2]) cutPts.push(cx2 + 0.5, cy2 + 0.5);
+      }
+      cutPts = samplePts(cutPts, 200);
+      var gap = cutSide === 'bottom' ? mh - coreBox.y1 : cutSide === 'top' ? coreBox.y0 : cutSide === 'left' ? coreBox.x0 : mw - coreBox.x1;
+      thinNear = function (px, py) {
+        var d = cutSide === 'bottom' ? mh - py : cutSide === 'top' ? py : cutSide === 'left' ? px : mw - px;
+        return d <= gap;
+      };
+    }
     return {
       rowBands: bandsOf(mask, maskBox, true), colBands: bandsOf(mask, maskBox, false),
       coreRowBands: bandsOf(core, coreBox, true), coreColBands: bandsOf(core, coreBox, false),
@@ -357,8 +528,10 @@
       count: count, coreCount: coreN, thinCount: count - coreN,
       coreShare: coreN / count, thinShare: (count - coreN) / count, fallback: fallback,
       dmax: dmax, radius: r, maskBox: maskBox, coreBox: coreBox, coreRows: coreRows,
-      coreBoundary: samplePts(bnd, 520), coreSample: samplePts(smp, 400), thinPts: samplePts(thin, 900),
-      mask: mask, core: core
+      coreBoundary: samplePts(bnd, 520), coreSample: samplePts(smp, 400), thinPts: (thinPtsS = samplePts(thin, 900)),
+      thinExempt: thinNear ? (function () { var f = new Uint8Array(thinPtsS.length / 2); for (var q = 0; q < f.length; q++) f[q] = thinNear(thinPtsS[2 * q], thinPtsS[2 * q + 1]) ? 1 : 0; return f; })() : null,
+      mask: mask, core: core, edgeCut: edgeCut, cutSide: cutSide, cutThroughThin: cutThin,
+      cutPts: cutPts, thinNearCut: thinNear
     };
   }
 
@@ -447,7 +620,7 @@
   // Свободные клетки сетки; если их много — прореживание решёткой с шагом step
   function freeCells(grid, limit, keepI) {
     var all = [], i, j;
-    for (j = 0; j < grid.ny; j++) for (i = 0; i < grid.nx; i++) if (grid.cov[j * grid.W1 + i] === 0 && (!keepI || keepI(i))) all.push(i, j);
+    for (j = 0; j < grid.ny; j++) for (i = 0; i < grid.nx; i++) if (grid.cov[j * grid.W1 + i] === 0 && (!keepI || keepI(i, j))) all.push(i, j);
     var n = all.length / 2;
     if (n <= limit) return { list: all, step: 1 };
     var st = Math.ceil(Math.sqrt(n / limit)), out = [];
@@ -456,9 +629,6 @@
     return { list: out, step: st };
   }
 
-  var HIT_TOL = 0.004;      // доля тонких частей, которой простительно задеть элемент (шум по краю)
-  var CROP_NONE = 0.02, CROP_MAX = 0.9, CROP_GAIN = 1.5;
-  var CENTER_KEEP = 0.8;    // ради положения по центру холста товар может стать мельче максимума до 20%
 
   /*
    * Зазоры силуэта до ближайших препятствий/краёв холста слева, справа, сверху, снизу.
@@ -504,25 +674,43 @@
    *    достаточно (≈ половина clearance сверх нормы), — самое близкое к вертикальной оси холста: «по центру, если влезает».
    */
   function placeByMass(an, env) {
-    var o = env.opts, W = env.W, H = env.H, A = env.A;
+    var o = env.opts, W = env.W, H = env.H, A = env.A, tu = o.tuning;
+    var HIT_TOL = tu.hitTolerance, HIT_BASE = tu.hitTolerance, CROP_NONE = tu.cropNone, CROP_MAX = tu.cropMax, CROP_GAIN = tu.cropGain, CENTER_KEEP = tu.centerKeep;
     var C = Math.max(0, o.clearance), P = Math.max(0, o.padding);
-    var field = obstacleField(W, H, env.hard, Math.max(2, Math.ceil(Math.max(W, H) / 400)));
+    var cellF = Math.max(2, Math.ceil(Math.max(W, H) / 400));
+    var field = obstacleField(W, H, env.hard, cellF);
+    var fieldThin = env.hardThin ? obstacleField(W, H, env.hardThin, cellF) : field;   // для тонких частей
     var hardC = env.hard.map(function (b) { return inflate(b, C); });
     var cb = an.coreBox;
     var sTop = Math.min(A.w / ((cb.x1 - cb.x0) * an.qx), A.h / ((cb.y1 - cb.y0) * an.qy));
     if (!(sTop > 0) || !isFinite(sTop)) return null;
     var TP = an.thinPts, BP = an.coreBoundary, SP = an.coreSample;
     var nT = TP.length / 2, nB = BP.length / 2, nS = SP.length / 2;
-    var mb = an.maskBox, BAL_W = 0.15, DELTA = Math.max(4, 0.15 * C), AIR_CAP = Math.max(8, C), AIR_OK = 0.5 * C;
+    var mb = an.maskBox, BAL_W = tu.balanceWeight, DELTA = Math.max(4, tu.airDelta * C), AIR_CAP = Math.max(8, tu.airCap * C), AIR_OK = tu.airOk * C;
 
+    // hideCut: обрезанный край должен быть за холстом или под элементом; тонкие части у края могут
+    // заходить под элементы и за край без штрафа
+    var hideCut = !!env.hideCut, EX = hideCut ? an.thinExempt : null, CP = an.cutPts || [], nC = CP.length / 2;
+    var coverBoxes = env.hard.concat(env.soft || []);
+    function covered(X, Y, kx, ky) {
+      if (!hideCut) return true;
+      for (var i = 0; i < nC; i++) {
+        var x = X + CP[2 * i] * kx, y = Y + CP[2 * i + 1] * ky, inside = false;
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        for (var j = 0; j < coverBoxes.length; j++) { var b = coverBoxes[j]; if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { inside = true; break; } }
+        if (!inside) return false;
+      }
+      return true;
+    }
     function thinCheck(X, Y, kx, ky) {
       var hit = 0, crop = 0;
       for (var i = 0; i < nT; i++) {
+        if (EX && EX[i]) continue;
         var x = X + TP[2 * i] * kx, y = Y + TP[2 * i + 1] * ky;
         if (x < 0 || y < 0 || x >= W || y >= H) crop++;
-        else if (fieldAt(field, x, y) < P) hit++;
+        else if (fieldAt(fieldThin, x, y) < P) hit++;
       }
-      return { hit: nT ? hit / nT : 0, crop: nT ? crop / nT : 0 };
+      return { hit: nT ? hit / nT : 0, crop: nT ? crop / nT : 0, cov: covered(X, Y, kx, ky) };
     }
     function score(X, Y, kx, ky, cropMode) {
       var n = 0, mn = Infinity, hit = 0, crop = 0, i, x, y, a;
@@ -532,10 +720,11 @@
         n++; if (a < mn) mn = a;
       }
       for (i = 0; i < nT; i++) {
+        if (EX && EX[i]) continue;
         x = X + TP[2 * i] * kx; y = Y + TP[2 * i + 1] * ky;
         var out = x < 0 || y < 0 || x >= W || y >= H;
         if (out) { crop++; if (cropMode) continue; }
-        var dObs = fieldAt(field, x, y) - P;
+        var dObs = fieldAt(fieldThin, x, y) - P;
         if (!out && dObs < 0) hit++;
         a = cropMode ? dObs : Math.min(dObs, x, W - x, y, H - y);
         n++; if (a < mn) mn = a;
@@ -546,7 +735,7 @@
       // В обычном режиме — по всему силуэту, при обрезке — по массе.
       var gp = cropMode ? sideGaps(an.coreRowBands, an.coreColBands, X, Y, kx, ky, env.hard, W, H)
                         : sideGaps(an.rowBands, an.colBands, X, Y, kx, ky, env.hard, W, H);
-      J -= BAL_W * Math.abs(1.1 * gp.T - gp.B) / 2;
+      J -= BAL_W * Math.abs(tu.opticalBottom * gp.T - gp.B) / 2;
       // По горизонтали ориентир — ось холста: центр видимой части (при обрезке — массы)
       var ref = cropMode ? cb : mb;
       var cx = X + (ref.x0 + ref.x1) / 2 * kx;
@@ -562,24 +751,38 @@
       var softF = nS ? soft / nS : 0, cropF = nT ? crop / nT : 0;
       J -= softF * 2 * C;
       if (cropMode) J -= cropF * C;
-      return { J: J, air: mn, hit: nT ? hit / nT : 0, crop: cropF, soft: softF, dc: Math.abs(cx - W / 2), gaps: gp };
+      if (HIT_TOL > HIT_BASE) J -= (nT ? hit / nT : 0) * 2 * C;     // тонкие части под элементами — как можно меньше
+      return { J: J, air: mn, hit: nT ? hit / nT : 0, crop: cropF, soft: softF, dc: Math.abs(cx - W / 2), gaps: gp, cov: covered(X, Y, kx, ky) };
     }
-    // centered: учитывать только положения, где центр товара у вертикальной оси холста (± axisTol)
-    var axisTol = Math.max(24, 0.04 * W);
+    // Главная свободная зона — самый большой по площади свободный прямоугольник (с воздухом clearance)
+    var zone = (function () {
+      var rs = freeRects(A, env.hard, C, Math.max(20, o.minSide));
+      rs.sort(function (a, b) { return b.w * b.h - a.w * a.h; });
+      return rs[0] || null;
+    })();
+    // centered: только положения, где центр товара у вертикальной оси холста (± axisTol),
+    // а центр массы — в главной свободной зоне (а не в полоске под кнопкой или в углу)
+    var axisTol = Math.max(24, tu.axisTolerance * W);
     function feasibleAt(S, kappa, centered) {
       var grid = feasibleGrid(an, S, A, hardC);
       if (!grid) return false;
       var keepI = null;
       if (centered) {
         var ref = kappa > CROP_NONE ? cb : mb, rc = (ref.x0 + ref.x1) / 2 * grid.kx;
-        keepI = function (i) { return Math.abs(grid.Xlo + i * grid.g + rc - W / 2) <= axisTol; };
+        var mc = (cb.y0 + cb.y1) / 2 * grid.ky;
+        keepI = function (i, j) {
+          if (Math.abs(grid.Xlo + i * grid.g + rc - W / 2) > axisTol) return false;
+          if (!zone) return true;
+          var y = grid.Ylo + j * grid.g + mc;                       // центр массы — в главной свободной зоне
+          return y >= zone.y && y <= zone.y + zone.h;
+        };
       }
       var cs = freeCells(grid, 260, keepI);
       if (!cs.list.length) return false;
-      if (!nT) return true;
+      if (!nT && !hideCut) return true;
       for (var q = 0; q < cs.list.length; q += 2) {
         var t = thinCheck(grid.Xlo + cs.list[q] * grid.g, grid.Ylo + cs.list[q + 1] * grid.g, grid.kx, grid.ky);
-        if (t.hit <= HIT_TOL && t.crop <= kappa) return true;
+        if (t.hit <= HIT_TOL && t.crop <= kappa && t.cov) return true;
       }
       return false;
     }
@@ -606,15 +809,29 @@
     }
 
     var m0 = modeScale(CROP_NONE);
+    var mUnder = null;
     var m1 = (o.thinCrop && nT) ? modeScale(CROP_MAX) : null;
-    // Обрезка решается по максимальным размерам режимов (без учёта центровки)
-    var s0 = m0 && m0.any, s1 = m1 && m1.any;
+    // Обрезка: сравниваются итоговые размеры режимов, вариант не по центру считается «мельче» в centerKeep раз
+    var eff = function (m) { return m ? m.s * (m.centered ? 1 : CENTER_KEEP) : 0; };
+    var s0 = eff(m0), s1 = eff(m1);
     var cropMode = false, chosenMode = m0;
     if (s1 && (!s0 || s1 >= CROP_GAIN * s0)) { cropMode = true; chosenMode = m1; }
+    // Ни один вариант не встал по центру главной зоны (длинная ручка упирается в заголовок) —
+    // пробуем пустить тонкие части под элементы и за край кадра: масса — по центру, ручка — за текстом
+    var thinUnder = false;
+    // (или так товар крупнее в cropGain раз, чем выбранный вариант)
+    if (o.thinCrop && nT && tu.thinUnderMax > HIT_BASE) {
+      HIT_TOL = tu.thinUnderMax;
+      var top0 = Math.max(m0 ? m0.any : 0, m1 ? m1.any : 0);
+      var cen2 = maxScale(CROP_MAX, true);
+      var better = cen2 && ((!(chosenMode && chosenMode.centered) && cen2 >= tu.thinUnderKeep * top0) || cen2 >= CROP_GAIN * eff(chosenMode));
+      if (better) { mUnder = { s: cen2, any: top0, centered: true }; chosenMode = mUnder; cropMode = true; thinUnder = true; }
+      else HIT_TOL = HIT_BASE;
+    }
     if (!chosenMode) return null;
     var sStar = chosenMode.s;
     var kappa = cropMode ? CROP_MAX : CROP_NONE;
-    var valid = function (c) { return c.hit <= HIT_TOL && c.crop <= kappa + 1e-9; };
+    var valid = function (c) { return c.hit <= HIT_TOL && c.crop <= kappa + 1e-9 && c.cov !== false; };
 
     function bestAt(S) {
       var grid = feasibleGrid(an, S, A, hardC);
@@ -667,7 +884,7 @@
 
     var S = best.S, X = best.X, Y = best.Y, kx = best.kx, ky = best.ky;
     return {
-      scale: S, maxScale: sStar, scaleWhole: s0, scaleCrop: s1, cropMode: cropMode, ok: best.ok,
+      scale: S, maxScale: sStar, scaleWhole: s0, scaleCrop: s1, cropMode: cropMode, ok: best.ok, thinUnder: thinUnder,
       centered: chosenMode.centered, sizeForCenter: chosenMode.centered ? chosenMode.s / chosenMode.any : 1,
       after: { x: X, y: Y, w: an.pngW * S, h: an.pngH * S },
       visible: { x: X + mb.x0 * kx, y: Y + mb.y0 * ky, w: (mb.x1 - mb.x0) * kx, h: (mb.y1 - mb.y0) * ky },
@@ -675,6 +892,151 @@
       air: best.air, hit: best.hit, crop: best.crop, soft: best.soft, clearance: C
     };
   }
+
+  /*
+   * Фото обрезано снизу (человек по пояс, товар «из-за края»): обрезанный край прижимается к низу холста,
+   * при необходимости уходит за него ещё на anchorCrop видимой высоты. Под элементы не может заходить
+   * только верхняя часть силуэта (anchorProtect — голова, лицо); нижняя может уходить под цену, кнопку,
+   * бейджи — они лежат поверх. Размер — максимальный, по центру холста, если так не мельче anchorCenterKeep
+   * (по умолчанию 60%: человек сбоку у края, вплотную к заголовку, выглядит хуже, чем чуть меньший по центру).
+   */
+  // Вид задачи, где обрезанный край — нижний: транспонирование (лево/право) и отражение по вертикали
+  function anchorView(an, env, side) {
+    var ops = { bottom: [], top: ['flip'], right: ['tr'], left: ['tr', 'flip'] }[side];
+    var mw = an.mw, mh = an.mh, mask = an.mask, core = an.core, qx = an.qx, qy = an.qy, pw = an.pngW, ph = an.pngH, W = env.W, H = env.H, i, x, y;
+    var boxes = { hard: env.hard.slice(), A: env.A };
+    ops.forEach(function (op) {
+      var m2 = new Uint8Array(mw * mh), c2 = new Uint8Array(mw * mh);
+      if (op === 'tr') {
+        for (y = 0; y < mh; y++) for (x = 0; x < mw; x++) { m2[x * mh + y] = mask[y * mw + x]; c2[x * mh + y] = core[y * mw + x]; }
+        var t = mw; mw = mh; mh = t; t = qx; qx = qy; qy = t; t = pw; pw = ph; ph = t; t = W; W = H; H = t;
+        var tb = function (b) { return { x: b.y, y: b.x, w: b.h, h: b.w }; };
+        boxes.hard = boxes.hard.map(tb); boxes.A = tb(boxes.A);
+      } else {
+        for (y = 0; y < mh; y++) for (x = 0; x < mw; x++) { m2[(mh - 1 - y) * mw + x] = mask[y * mw + x]; c2[(mh - 1 - y) * mw + x] = core[y * mw + x]; }
+        var hh = H, fb = function (b) { return { x: b.x, y: hh - b.y - b.h, w: b.w, h: b.h }; };
+        boxes.hard = boxes.hard.map(fb); boxes.A = fb(boxes.A);
+      }
+      mask = m2; core = c2;
+    });
+    var x0 = mw, y0 = mh, x1 = -1, y1 = -1;
+    for (i = 0; i < mw * mh; i++) if (mask[i]) { x = i % mw; y = (i - x) / mw; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    var view = { mw: mw, mh: mh, mask: mask, core: core, cutThroughThin: an.cutThroughThin, qx: qx, qy: qy, pngW: pw, pngH: ph, maskBox: { x0: x0, y0: y0, x1: x1 + 1, y1: y1 + 1 } };
+    var venv = { W: W, H: H, A: boxes.A, hard: boxes.hard, soft: [], opts: env.opts };
+    // обратное преобразование прямоугольника из вида в холст
+    var back = function (b) {
+      var r = { x: b.x, y: b.y, w: b.w, h: b.h }, Wc = W, Hc = H;
+      for (var k = ops.length - 1; k >= 0; k--) {
+        if (ops[k] === 'flip') r = { x: r.x, y: Hc - r.y - r.h, w: r.w, h: r.h };
+        else { r = { x: r.y, y: r.x, w: r.h, h: r.w }; var t2 = Wc; Wc = Hc; Hc = t2; }
+      }
+      return r;
+    };
+    return { view: view, env: venv, back: back };
+  }
+  function placeAnchoredSide(an, env, side) {
+    var v = anchorView(an, env, side), res = placeAnchored(v.view, v.env);
+    if (!res) return null;
+    res.anchored = side;
+    res.after = v.back(res.after); res.visible = v.back(res.visible); res.massBox = v.back(res.massBox);
+    return res;
+  }
+
+  function placeAnchored(an, env) {
+    var o = env.opts, tu = o.tuning, W = env.W, H = env.H, A = env.A, C = Math.max(0, o.clearance);
+    var mb = an.maskBox, visRows = mb.y1 - mb.y0;
+    // Защищённая часть: если край перерезан тонкой частью (ручка) — вся масса товара, под элементы уходят
+    // только тонкие части; если массой (человек по пояс) — доля силуэта у противоположного края.
+    var protMask = an.cutThroughThin ? an.core : an.mask;
+    var protStart = mb.y0, protEnd = an.cutThroughThin ? mb.y1 : mb.y0 + Math.max(1, Math.ceil(tu.anchorProtect * visRows));
+    var rows = [], px0 = Infinity, px1 = -Infinity, py0 = Infinity, py1 = -Infinity, v, u;
+    for (v = protStart; v < protEnd; v++) {
+      var spans = [], run = -1;
+      for (u = 0; u <= an.mw; u++) {
+        var on = u < an.mw && protMask[v * an.mw + u] === 1;
+        if (on && run < 0) run = u;
+        else if (!on && run >= 0) { spans.push(run, u); if (run < px0) px0 = run; if (u > px1) px1 = u; run = -1; }
+      }
+      if (spans.length) { rows.push({ v: v, s: spans }); if (v < py0) py0 = v; py1 = v + 1; }
+    }
+    if (!rows.length) return null;
+    var hardC = env.hard.map(function (b) { return inflate(b, C); });
+    var axisTol = Math.max(24, tu.axisTolerance * W);
+
+    // Допустимые X (левый край PNG) при масштабе S и доле дополнительной обрезки t
+    function allowed(S, t) {
+      var kx = an.qx * S, ky = an.qy * S, visH = visRows * ky;
+      var Y = H + t * visH - mb.y1 * ky;
+      if (Y + py0 * ky < A.y) return null;                         // защищённая часть выше поля
+      var lo = Math.max(-mb.x0 * kx, A.x - px0 * kx), hi = Math.min(W - mb.x1 * kx, A.x + A.w - px1 * kx);
+      if (hi < lo) return null;
+      var bad = [];
+      rows.forEach(function (r) {
+        var y0 = Y + r.v * ky, y1 = y0 + ky;
+        hardC.forEach(function (O) {
+          if (O.y >= y1 || O.y + O.h <= y0) return;
+          for (var q = 0; q < r.s.length; q += 2) bad.push([O.x - r.s[q + 1] * kx, O.x + O.w - r.s[q] * kx]);
+        });
+      });
+      bad.sort(function (a, b) { return a[0] - b[0]; });
+      var free = [], cur = lo;
+      for (var i = 0; i < bad.length && cur <= hi; i++) {
+        if (bad[i][1] <= cur) continue;
+        if (bad[i][0] > cur) free.push([cur, Math.min(hi, bad[i][0])]);
+        cur = Math.max(cur, bad[i][1]);
+      }
+      if (cur <= hi) free.push([cur, hi]);
+      return free.length ? { free: free, Y: Y, kx: kx, ky: ky } : null;
+    }
+    function nearestX(f, kx) {
+      var target = W / 2 - (mb.x0 + mb.x1) / 2 * kx, best = null;
+      f.free.forEach(function (iv) {
+        var x = Math.min(iv[1], Math.max(iv[0], target)), d = Math.abs(x - target);
+        if (!best || d < best.d) best = { X: x, d: d };
+      });
+      return best;
+    }
+    function ok(S, t, centered) {
+      var f = allowed(S, t); if (!f) return false;
+      return !centered || nearestX(f, f.kx).d <= axisTol;
+    }
+    // Сколько можно срезать краем кадра: у человека — anchorCrop видимой высоты; если за край уходит
+    // тонкая часть — сколько угодно, но не задевая массу
+    var tMax = an.cutThroughThin ? Math.max(0, (mb.y1 - py1) / visRows) : tu.anchorCrop;
+    var sTop = Math.min(W / ((mb.x1 - mb.x0) * an.qx), (H - A.y) / (Math.max(1, mb.y1 - py0) * an.qy * Math.max(0.05, 1 - tMax)));
+    function maxS(t, centered) {
+      var S = sTop, bad = null, good = null;
+      for (var it = 0; it < 60 && S > sTop * 0.03; it++) { if (ok(S, t, centered)) { good = S; break; } bad = S; S *= 0.93; }
+      if (good === null) return null;
+      if (bad !== null) { var lo = good, hi = bad; for (var b = 0; b < 7; b++) { var mid = Math.sqrt(lo * hi); if (ok(mid, t, centered)) lo = mid; else hi = mid; } good = lo; }
+      return good;
+    }
+    var ts = an.cutThroughThin ? [0, 0.25, 0.5, 0.75, 1].map(function (f) { return f * tMax; }) : [0, tMax / 2, tMax], opts = [];
+    ts.forEach(function (t) { opts.push({ t: t, any: maxS(t, false), cen: maxS(t, true) }); });
+    var anyMax = 0;
+    opts.forEach(function (q) { if (q.any > anyMax) anyMax = q.any; });
+    if (!anyMax) return null;
+    // меньше обрезки, если размер почти тот же; по центру, если не мельче centerKeep
+    var pickT = function (key, ref) { for (var i = 0; i < opts.length; i++) if (opts[i][key] && opts[i][key] >= 0.97 * ref) return opts[i]; return null; };
+    var cenMax = 0;
+    opts.forEach(function (q) { if (q.cen > cenMax) cenMax = q.cen; });
+    var centered = cenMax >= tu.anchorCenterKeep * anyMax;
+    var chosen = centered ? pickT('cen', cenMax) : pickT('any', anyMax);
+    var sStar = centered ? chosen.cen : chosen.any;
+    var S = sStar * o.fill, f = allowed(S, chosen.t);
+    if (!f) { S = sStar; f = allowed(S, chosen.t); }
+    var nx = nearestX(f, f.kx), X = nx.X, Y = f.Y, kx = f.kx, ky = f.ky;
+    var cut = Math.max(0, Y + an.mh * ky - H);
+    return {
+      anchored: 'bottom', scale: S, maxScale: sStar, centered: centered, sizeForCenter: centered ? cenMax / anyMax : 1,
+      cropPx: cut, cropMode: false, ok: true, crop: 0, hit: 0, soft: 0, air: 0, clearance: C,
+      after: { x: X, y: Y, w: an.pngW * S, h: an.pngH * S },
+      visible: { x: X + mb.x0 * kx, y: Y + mb.y0 * ky, w: (mb.x1 - mb.x0) * kx, h: (mb.y1 - mb.y0) * ky },
+      massBox: { x: X + px0 * kx, y: Y + py0 * ky, w: (px1 - px0) * kx, h: (py1 - py0) * ky }
+    };
+  }
+
+  var SIDE_RU = { bottom: ['снизу', 'нижнему', 'нижний'], top: ['сверху', 'верхнему', 'верхний'], left: ['слева', 'левому', 'левый'], right: ['справа', 'правому', 'правый'] };
 
   // Самая крупная вписанная рамка товара с пропорцией aspect (w/h)
   function fitIn(rect, aspect) {
@@ -737,7 +1099,7 @@
     if (!found) return { ok: false, error: 'Лейаут не найден' };
     var scene = found.scene, layout = found.layout, canvas = scene.canvas;
     var palette = paletteOf(project);
-    var items = (layout.elements || []).map(function (el) { return { el: el, info: classify(el, opts, palette) }; });
+    var items = (layout.elements || []).map(function (el, i) { return { el: el, index: i, info: classify(el, opts, palette, { layoutId: layoutId, index: i }) }; });
     var targetItem = null;
     items.forEach(function (it) { if (!targetItem && it.info.role === 'target') targetItem = it; });
     if (!targetItem) return { ok: false, error: 'В лейауте нет элемента «Фото товара» (product-image)', canvas: canvas, items: items };
@@ -752,7 +1114,10 @@
       w: canvas.width - 2 * m - sz.left - sz.right,
       h: canvas.height - 2 * m - sz.top - sz.bottom
     };
-    var obstacles = items.filter(function (it) { return it.info.role === 'obstacle' && it.info.box; })
+    var obstacles = items.filter(function (it) { return (it.info.role === 'obstacle' || it.info.role === 'thin') && it.info.box; })
+      .map(function (it) { return it.info.box; });
+    // для тонких частей препятствия — только 'obstacle'; под 'thin' (заголовок, старая цена) они могут проходить
+    var thinBlockers = items.filter(function (it) { return it.info.role === 'obstacle' && it.info.box; })
       .map(function (it) { return it.info.box; });
     var rects = freeRects(area, obstacles, opts.padding, opts.minSide);
     if (!rects.length) {
@@ -761,17 +1126,34 @@
 
     var aspect = product && product.trim ? product.trim.w / product.trim.h : opts.productAspect;
     var chosen = chooseRect(rects, aspect, canvas);
-    var after = null, visible, warnings = [], infos = [], mass = null;
+    var after = null, visible, warnings = (opts.warnings || []).map(function (w) { return 'Настройки: ' + w; }), infos = [], mass = null;
 
     if (product && product.analysis) {
       // Посадка по массе: щётка/корпус — по центру свободного места с воздухом, ручки и шнуры — куда поместятся
       var softBoxes = items.filter(function (it) { return it.info.role === 'soft' && it.info.box; })
         .map(function (it) { return it.info.box; });
-      mass = placeByMass(product.analysis, { W: canvas.width, H: canvas.height, A: area, hard: obstacles, soft: softBoxes, opts: opts });
-      if (mass) {
+      var envM = { W: canvas.width, H: canvas.height, A: area, hard: obstacles, hardThin: thinBlockers, soft: softBoxes, opts: opts };
+      var an = product.analysis, side = opts.anchor === 'auto' ? an.cutSide : (opts.anchor === 'none' ? null : opts.anchor);
+      if (side && SIDE_RU[side]) {
+        // Два способа скрыть обрезанный край: прижать его к краю холста или спрятать под элемент (ручка за заголовком)
+        var mA = placeAnchoredSide(an, envM, side);
+        var mB = (an.cutPts && an.cutPts.length) ? placeByMass(an, Object.assign({}, envM, { hideCut: true })) : null;
+        if (mB && !mB.ok) mB = null;
+        if (mA && (!mB || (mA.scale >= opts.tuning.anchorKeep * mB.scale && (mA.centered || !mB.centered)))) mass = mA;
+        else if (mB) { mass = mB; mass.hiddenCut = side; }
+      } else mass = placeByMass(an, envM);
+      if (mass && mass.anchored) {
         after = mass.after; visible = mass.visible;
+        infos.push('Фото обрезано ' + SIDE_RU[mass.anchored][0] + ' — прижато к ' + SIDE_RU[mass.anchored][1] + ' краю' + (mass.cropPx > 1 ? ' и срезано ещё на ' + Math.round(mass.cropPx) + ' px' : '') + '. ' +
+          (an.cutThroughThin ? 'За край уходит тонкая часть — масса товара не заходит под элементы, под них может уходить только она.'
+            : 'Часть силуэта у противоположного края (' + Math.round(opts.tuning.anchorProtect * 100) + '%) не заходит под элементы, остальное — может.'));
+        if (mass.centered && mass.sizeForCenter < 0.97) infos.push('Чтобы товар встал по центру, он на ' + Math.round((1 - mass.sizeForCenter) * 100) + '% мельче максимума.');
+      } else if (mass) {
+        after = mass.after; visible = mass.visible;
+        if (mass.hiddenCut) infos.push('Фото обрезано ' + SIDE_RU[mass.hiddenCut][0] + ' — прижать к краю холста можно только совсем мелко, поэтому обрезанный край спрятан под элементом или за краем, а масса товара стоит в свободном месте.');
         if (!mass.ok) warnings.push('Тонкие части товара задевают элементы — свободного места мало. Уменьшите «Воздух вокруг массы» или проверьте лейаут в редакторе.');
         if (mass.centered && mass.sizeForCenter < 0.97) infos.push('Чтобы товар встал по центру, он на ' + Math.round((1 - mass.sizeForCenter) * 100) + '% мельче максимума — крупнее он поместился бы только сбоку.');
+        if (mass.thinUnder) infos.push('Длинная тонкая часть (ручка) проходит под элементами и уходит за край — иначе товар не встаёт по центру. Проверьте читаемость текста над ней.');
         if (mass.crop > 0.005) infos.push('Тонкие части обрезаны краем кадра (' + Math.round(mass.crop * 100) + '%) — так масса товара крупнее в ' + (mass.scaleWhole ? (mass.maxScale / mass.scaleWhole).toFixed(1).replace('.', ',') + ' раза' : 'разы') + '. Отключается в параметрах.');
       } else {
         warnings.push('Массе товара не хватило места с воздухом ' + opts.clearance + ' px — товар вписан по видимой части. Уменьшите «Воздух вокруг массы» или поле.');
@@ -780,7 +1162,8 @@
 
     if (after) {
       var outM = Math.max(0, -after.x, -after.y, after.x + after.w - canvas.width, after.y + after.h - canvas.height);
-      if (outM > 0.5) warnings.push('Контейнер выходит за холст на ' + Math.round(outM) + ' px (прозрачные поля PNG' + (mass && mass.crop > 0.005 ? ', обрезка тонких частей' : '') + '). Если редактор этого не допускает — обрежьте поля у PNG.');
+      if (outM > 0.5 && mass && mass.anchored) infos.push('Контейнер выходит за ' + SIDE_RU[mass.anchored][2] + ' край холста на ' + Math.round(outM) + ' px — так задумано (обрезанное фото). Проверьте, что редактор это принимает.');
+      else if (outM > 0.5) warnings.push('Контейнер выходит за холст на ' + Math.round(outM) + ' px (прозрачные поля PNG' + (mass && mass.crop > 0.005 ? ', обрезка тонких частей' : '') + '). Если редактор этого не допускает — обрежьте поля у PNG.');
     } else if (product && product.trim) {
       // Видимая часть PNG вписывается в свободную область и встаёт по её центру;
       // контейнер = весь PNG в том же масштабе (картинка вписывается в контейнер целиком).
@@ -841,8 +1224,12 @@
   }
 
   var api = {
+    VERSION: '33036895',
     DEFAULT_OPTIONS: DEFAULT_OPTIONS,
+    ROLES: ROLES,
     TEXT_METRICS: TEXT_METRICS,
+    resolveOptions: resolveOptions,
+    layerKey: function (layoutId, index) { return layoutId + '/' + index; },
     listLayouts: listLayouts,
     computeLayout: computeLayout,
     applyToProject: applyToProject,
