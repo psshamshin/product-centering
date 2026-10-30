@@ -125,6 +125,10 @@ table.elements th, table.elements td { text-align: left; white-space: normal; }
 table.elements td.num { text-align: right; white-space: nowrap; }
 table.elements tr.muted td { color: var(--muted); }
 .elements-box { min-width: 0; }
+table.elements select { font: inherit; font-size: 13px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); max-width: 100%; }
+table.elements tr.overridden td:first-child::after { content: ' •'; color: var(--accent); }
+.cfg textarea { width: 100%; min-height: 220px; font-family: var(--font-mono); font-size: 12px; }
+.cfg .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .elements-box > .table-wrap { margin-top: 8px; }
 @media (max-width: 520px) { table.elements { font-size: 13px; } }
 .elements-box summary { cursor: pointer; }
@@ -188,6 +192,13 @@ table.elements tr.muted td { color: var(--muted); }
             <label class="field">Воздух вокруг массы (с PNG), px<input type="number" id="opt-clearance" min="0" max="400" step="1"></label>
             <label class="field">Размер массы (с PNG), % от максимума<input type="number" id="opt-fill" min="40" max="100" step="1"></label>
             <label class="field">Порог «тонкой» части, %<input type="number" id="opt-thin" min="5" max="60" step="1"></label>
+            <label class="field wide">Обрезанное фото (человек по пояс и т. п.)
+              <select id="opt-anchor">
+                <option value="auto">Определять по PNG: обрезано снизу — прижать к низу</option>
+                <option value="bottom">Всегда прижимать к низу</option>
+                <option value="none">Не учитывать — сажать как обычный товар</option>
+              </select>
+            </label>
             <label class="check wide field"><input type="checkbox" id="opt-crop"> <span>Тонкие части можно обрезать краем кадра, если масса товара станет крупнее в 1,5+ раза</span></label>
             <label class="field wide">Пропорции товара без PNG
               <select id="opt-aspect">
@@ -207,6 +218,13 @@ table.elements tr.muted td { color: var(--muted); }
             <label class="check wide field"><input type="checkbox" id="opt-safe"> <span>Учитывать safeZones сцены</span></label>
             <div class="field wide"><button type="button" id="opt-reset">Вернуть значения по умолчанию</button></div>
           </div>
+          <details class="cfg" id="cfg">
+            <summary class="hint">Все настройки в JSON — константы, роли типов и слоёв</summary>
+            <p class="hint">Этот же объект передаётся в ядро третьим аргументом. Пропущенные или некорректные значения остаются по умолчанию.</p>
+            <textarea id="cfg-text" spellcheck="false" aria-label="Настройки в JSON"></textarea>
+            <div class="row"><button type="button" id="cfg-apply">Применить</button><button type="button" id="cfg-copy">Скопировать</button></div>
+            <div class="status" id="cfg-status"></div>
+          </details>
         </details>
       </section>
     </div>
@@ -364,7 +382,7 @@ table.elements tr.muted td { color: var(--muted); }
       var trim = { x: x0 / k, y: y0 / k, w: (x1 - x0 + 1) / k, h: (y1 - y0 + 1) / k };
       var noAlpha = opaque === w * h;
       // Копия до 256 px по длинной стороне — для разбора силуэта на массу и тонкие части
-      var k2 = Math.min(1, 256 / Math.max(iw, ih));
+      var k2 = Math.min(1, (S.opts.tuning && S.opts.tuning.analysisSize || 256) / Math.max(iw, ih));
       var mw = Math.max(1, Math.round(iw * k2)), mh = Math.max(1, Math.round(ih * k2));
       var c2 = document.createElement('canvas'); c2.width = mw; c2.height = mh;
       var x2 = c2.getContext('2d', { willReadFrequently: true });
@@ -415,6 +433,7 @@ table.elements tr.muted td { color: var(--muted); }
     else if (a.fallback) m2.textContent = 'Товар целиком тонкий (провод, цепочка) — массой считается весь силуэт.';
     else if (a.thinShare < 0.01) m2.textContent = 'Тонких частей нет — масса = весь силуэт.';
     else m2.textContent = 'Масса — ' + pct(a.coreShare) + ' силуэта, тонкие части — ' + pct(a.thinShare) + '.';
+    if (a && a.cutSide) m2.textContent += ' Фото обрезано ' + ({ bottom: 'снизу', top: 'сверху', left: 'слева', right: 'справа' }[a.cutSide]) + '.';
     st.append(n, m, m2);
     if (p.noAlpha) { var w2 = document.createElement('div'); w2.textContent = 'У PNG нет прозрачного фона — центрируется весь файл.'; st.append(w2); }
   }
@@ -434,6 +453,8 @@ table.elements tr.muted td { color: var(--muted); }
     $('opt-split').checked = S.opts.splitHeadlineIsSoft;
     $('opt-clearance').value = S.opts.clearance; $('opt-fill').value = Math.round(S.opts.fill * 100);
     $('opt-thin').value = Math.round(S.opts.thinRatio * 100); $('opt-crop').checked = S.opts.thinCrop;
+    $('opt-anchor').value = S.opts.anchor || 'auto';
+    syncCfg();
   }
   function readNum(id, fallback) { var v = parseFloat($(id).value); return isFinite(v) ? v : fallback; }
   function onOptions() {
@@ -450,12 +471,14 @@ table.elements tr.muted td { color: var(--muted); }
     S.opts.clearance = Math.max(0, readNum('opt-clearance', DEF.clearance));
     S.opts.fill = Math.min(100, Math.max(40, readNum('opt-fill', DEF.fill * 100))) / 100;
     S.opts.thinCrop = $('opt-crop').checked;
+    S.opts.anchor = $('opt-anchor').value;
     var thin = Math.min(60, Math.max(5, readNum('opt-thin', DEF.thinRatio * 100))) / 100;
     if (thin !== S.opts.thinRatio) { S.opts.thinRatio = thin; analyzePng(); }
+    syncCfg();
     recompute();
   }
   ['opt-margin', 'opt-padding', 'opt-aspect', 'opt-f-logo', 'opt-f-discount', 'opt-f-cta', 'opt-minside', 'opt-disclaimer', 'opt-safe', 'opt-split',
-   'opt-clearance', 'opt-fill', 'opt-thin', 'opt-crop']
+   'opt-clearance', 'opt-fill', 'opt-thin', 'opt-crop', 'opt-anchor']
     .forEach(function (id) { $(id).addEventListener('change', onOptions); $(id).addEventListener('input', onOptions); });
   $('opt-reset').addEventListener('click', function () { S.opts = JSON.parse(JSON.stringify(DEF)); syncOptionInputs(); analyzePng(); recompute(); });
 
@@ -534,7 +557,9 @@ table.elements tr.muted td { color: var(--muted); }
     var ul = $('notes'); ul.innerHTML = '';
     var r = S.current; if (!r || !r.items) return;
     var add = function (text, warn) { var li = document.createElement('li'); li.textContent = text; if (warn) li.className = 'warn'; ul.appendChild(li); };
-    if (r.ok && r.mode === 'mass') {
+    if (r.ok && r.mode === 'mass' && r.mass.anchored) {
+      add('Фото прижато к нижнему краю. Верх силуэта — ' + Math.round(r.mass.massBox.w) + '×' + Math.round(r.mass.massBox.h) + ' px — держится от элементов на ' + r.mass.clearance + ' px. ' + (r.mass.centered ? 'Стоит по центру холста.' : 'По центру не помещается — стоит там, где хватает места.'));
+    } else if (r.ok && r.mode === 'mass') {
       var mb = r.mass.massBox;
       add('Масса товара: ' + Math.round(mb.w) + '×' + Math.round(mb.h) + ' px, воздух до элементов — от ' + r.mass.clearance + ' px. ' +
         (r.mass.centered ? 'Товар стоит по центру холста.' : 'По центру товар не помещается — стоит там, где хватает места.'));
@@ -555,21 +580,62 @@ table.elements tr.muted td { color: var(--muted); }
     var box = $('elements-table'); box.innerHTML = '';
     var r = S.current; if (!r || !r.items) return;
     var t = document.createElement('table'); t.className = 'elements';
-    t.innerHTML = '<thead><tr><th>Элемент</th><th>Как учитывается</th><th>Размер, px</th><th>Откуда размер</th></tr></thead>';
+    t.innerHTML = '<thead><tr><th>Элемент</th><th>Учитывать</th><th>Размер, px</th><th>Откуда размер</th></tr></thead>';
     var tb = document.createElement('tbody');
     r.items.forEach(function (it) {
       var i = it.info, tr = document.createElement('tr');
       var size = i.box ? Math.round(i.box.w) + '×' + Math.round(i.box.h) : (i.role === 'target' && r.ok ? Math.round(r.after.w) + '×' + Math.round(r.after.h) : '—');
-      var src = i.source ? SRC_TEXT[i.source] : (i.notes[0] || '');
-      [i.name, ROLE_TEXT[i.role] || i.role, size, src].forEach(function (c, k) {
-        var td = document.createElement('td'); td.textContent = c; if (k === 2) td.className = 'num'; tr.appendChild(td);
+      var src = i.source ? SRC_TEXT[i.source] : (i.notes.filter(function (n) { return n.indexOf('роль задана') < 0; })[0] || '');
+      [i.name, null, size, src].forEach(function (c, k) {
+        var td = document.createElement('td');
+        if (k === 1) td.appendChild(roleControl(it, r)); else td.textContent = c;
+        if (k === 2) td.className = 'num';
+        tr.appendChild(td);
       });
       if (i.notes.length) tr.title = i.notes.join('; ');
-      if (i.role === 'ignore') tr.className = 'muted';
+      tr.className = (i.role === 'ignore' ? 'muted' : '') + (i.override ? ' overridden' : '');
       tb.appendChild(tr);
     });
     t.appendChild(tb); box.appendChild(t);
   }
+
+  // Выбор роли слоя: сохраняется в S.opts.layers['layoutId/индекс']
+  function roleControl(it, r) {
+    var i = it.info;
+    if (i.role === 'target') { var sp = document.createElement('span'); sp.textContent = ROLE_TEXT.target; return sp; }
+    var sel = document.createElement('select'), key = E.layerKey(r.layoutId, it.index);
+    sel.setAttribute('aria-label', 'Как учитывать «' + i.name + '»');
+    [['auto', 'Авто: ' + (ROLE_TEXT[i.defaultRole] || i.defaultRole)], ['obstacle', ROLE_TEXT.obstacle], ['soft', ROLE_TEXT.soft], ['ignore', ROLE_TEXT.ignore]]
+      .forEach(function (o) { var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op); });
+    var cur = S.opts.layers && S.opts.layers[key];
+    sel.value = typeof cur === 'string' ? cur : (cur === false ? 'ignore' : (cur === true ? 'obstacle' : 'auto'));
+    sel.addEventListener('change', function () {
+      S.opts.layers = S.opts.layers || {};
+      if (sel.value === 'auto') delete S.opts.layers[key]; else S.opts.layers[key] = sel.value;
+      syncCfg(); recompute();
+    });
+    return sel;
+  }
+
+  // ---------- настройки JSON ----------
+  function cfgObject() { var o = JSON.parse(JSON.stringify(S.opts)); delete o.warnings; return o; }
+  function syncCfg() { if (document.activeElement !== $('cfg-text')) $('cfg-text').value = JSON.stringify(cfgObject(), null, 2); }
+  $('cfg-apply').addEventListener('click', function () {
+    var st = $('cfg-status');
+    try {
+      var parsed = JSON.parse($('cfg-text').value);
+      var res = E.resolveOptions(parsed), warn = res.warnings || [];
+      delete res.warnings;
+      S.opts = res; syncOptionInputs(); analyzePng(); recompute();
+      $('cfg-text').value = JSON.stringify(cfgObject(), null, 2);
+      st.textContent = warn.length ? 'Применено, но: ' + warn.join('; ') : 'Применено';
+    } catch (e) { st.textContent = 'Не JSON: ' + e.message; }
+  });
+  $('cfg-copy').addEventListener('click', function () {
+    var txt = JSON.stringify(cfgObject(), null, 2);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function () { $('cfg-status').textContent = 'Скопировано'; }, function () { $('cfg-text').select(); });
+    else $('cfg-text').select();
+  });
 
   function outText() { return S.out ? JSON.stringify(S.out.project, null, 2) : ''; }
   function outName() {
@@ -752,7 +818,7 @@ table.elements tr.muted td { color: var(--muted); }
       if (S.png) {
         ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
         ctx.drawImage(S.png.img, r.after.x, r.after.y, r.after.w, r.after.h);
-        if (show.mass && r.mode === 'mass' && S.png.overlay) ctx.drawImage(S.png.overlay, r.after.x, r.after.y, r.after.w, r.after.h);
+        if (show.mass && r.mode === 'mass' && !r.mass.anchored && S.png.overlay) ctx.drawImage(S.png.overlay, r.after.x, r.after.y, r.after.w, r.after.h);
         ctx.restore();
       } else {
         var v = r.visible;
@@ -775,7 +841,7 @@ table.elements tr.muted td { color: var(--muted); }
     }
     if (r.ok && r.mode === 'mass' && show.mass) {
       dashedRect(ctx, r.mass.massBox, 'rgba(12,140,90,0.95)', 2 / k, [8 / k, 6 / k]);
-      label(ctx, 'масса', r.mass.massBox.x, Math.max(0, r.mass.massBox.y - 22 / k), 'rgba(12,140,90,0.95)', '#fff', k);
+      label(ctx, r.mass.anchored ? 'верх — без перекрытий' : 'масса', r.mass.massBox.x, Math.max(0, r.mass.massBox.y - 22 / k), 'rgba(12,140,90,0.95)', '#fff', k);
     }
     if (r.before && show.before && r.before.x !== null) {
       dashedRect(ctx, r.before, 'rgba(60,60,60,.85)', 2 / k, [10 / k, 6 / k]);
