@@ -192,10 +192,13 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
             <label class="field">Воздух вокруг массы (с PNG), px<input type="number" id="opt-clearance" min="0" max="400" step="1"></label>
             <label class="field">Размер массы (с PNG), % от максимума<input type="number" id="opt-fill" min="40" max="100" step="1"></label>
             <label class="field">Порог «тонкой» части, %<input type="number" id="opt-thin" min="5" max="60" step="1"></label>
-            <label class="field wide">Обрезанное фото (человек по пояс и т. п.)
+            <label class="field wide">Обрезанное фото (человек по пояс, ручка за кадром)
               <select id="opt-anchor">
-                <option value="auto">Определять по PNG: обрезано снизу — прижать к низу</option>
-                <option value="bottom">Всегда прижимать к низу</option>
+                <option value="auto">Определять по PNG</option>
+                <option value="bottom">Обрезано снизу</option>
+                <option value="top">Обрезано сверху</option>
+                <option value="left">Обрезано слева</option>
+                <option value="right">Обрезано справа</option>
                 <option value="none">Не учитывать — сажать как обычный товар</option>
               </select>
             </label>
@@ -558,7 +561,7 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
     var r = S.current; if (!r || !r.items) return;
     var add = function (text, warn) { var li = document.createElement('li'); li.textContent = text; if (warn) li.className = 'warn'; ul.appendChild(li); };
     if (r.ok && r.mode === 'mass' && r.mass.anchored) {
-      add('Фото прижато к нижнему краю. Верх силуэта — ' + Math.round(r.mass.massBox.w) + '×' + Math.round(r.mass.massBox.h) + ' px — держится от элементов на ' + r.mass.clearance + ' px. ' + (r.mass.centered ? 'Стоит по центру холста.' : 'По центру не помещается — стоит там, где хватает места.'));
+      add('Фото прижато к краю холста. Защищённая часть — ' + Math.round(r.mass.massBox.w) + '×' + Math.round(r.mass.massBox.h) + ' px — держится от элементов на ' + r.mass.clearance + ' px. ' + (r.mass.centered ? 'Стоит по центру холста.' : 'По центру не помещается — стоит там, где хватает места.'));
     } else if (r.ok && r.mode === 'mass') {
       var mb = r.mass.massBox;
       add('Масса товара: ' + Math.round(mb.w) + '×' + Math.round(mb.h) + ' px, воздух до элементов — от ' + r.mass.clearance + ' px. ' +
@@ -574,7 +577,7 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
     (r.warnings || []).forEach(function (w) { add(w, true); });
   }
 
-  var ROLE_TEXT = { obstacle: 'товар обходит', soft: 'товар может заходить', ignore: 'не учитывается', target: 'пересчитывается' };
+  var ROLE_TEXT = { obstacle: 'товар обходит', thin: 'обходит, ручка может заходить', soft: 'товар может заходить', ignore: 'не учитывается', target: 'пересчитывается' };
   var SRC_TEXT = { json: 'из JSON', factor: 'оценка по высоте', text: 'оценка по тексту' };
   function renderElements() {
     var box = $('elements-table'); box.innerHTML = '';
@@ -605,7 +608,7 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
     if (i.role === 'target') { var sp = document.createElement('span'); sp.textContent = ROLE_TEXT.target; return sp; }
     var sel = document.createElement('select'), key = E.layerKey(r.layoutId, it.index);
     sel.setAttribute('aria-label', 'Как учитывать «' + i.name + '»');
-    [['auto', 'Авто: ' + (ROLE_TEXT[i.defaultRole] || i.defaultRole)], ['obstacle', ROLE_TEXT.obstacle], ['soft', ROLE_TEXT.soft], ['ignore', ROLE_TEXT.ignore]]
+    [['auto', 'Авто: ' + (ROLE_TEXT[i.defaultRole] || i.defaultRole)], ['obstacle', ROLE_TEXT.obstacle], ['thin', ROLE_TEXT.thin], ['soft', ROLE_TEXT.soft], ['ignore', ROLE_TEXT.ignore]]
       .forEach(function (o) { var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op); });
     var cur = S.opts.layers && S.opts.layers[key];
     sel.value = typeof cur === 'string' ? cur : (cur === false ? 'ignore' : (cur === true ? 'obstacle' : 'auto'));
@@ -836,12 +839,13 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
     if (show.boxes) {
       items.forEach(function (it) {
         var b = it.info.box; if (!b) return;
-        dashedRect(ctx, b, it.info.role === 'soft' ? 'rgba(214,69,61,.6)' : '#d6453d', 1.5 / k, it.info.role === 'soft' ? [5 / k, 4 / k] : []);
+        var rl = it.info.role;
+        dashedRect(ctx, b, rl === 'soft' ? 'rgba(214,69,61,.6)' : (rl === 'thin' ? '#e07a00' : '#d6453d'), 1.5 / k, rl === 'soft' ? [5 / k, 4 / k] : (rl === 'thin' ? [10 / k, 4 / k] : []));
       });
     }
     if (r.ok && r.mode === 'mass' && show.mass) {
       dashedRect(ctx, r.mass.massBox, 'rgba(12,140,90,0.95)', 2 / k, [8 / k, 6 / k]);
-      label(ctx, r.mass.anchored ? 'верх — без перекрытий' : 'масса', r.mass.massBox.x, Math.max(0, r.mass.massBox.y - 22 / k), 'rgba(12,140,90,0.95)', '#fff', k);
+      label(ctx, r.mass.anchored ? 'без перекрытий' : 'масса', r.mass.massBox.x, Math.max(0, r.mass.massBox.y - 22 / k), 'rgba(12,140,90,0.95)', '#fff', k);
     }
     if (r.before && show.before && r.before.x !== null) {
       dashedRect(ctx, r.before, 'rgba(60,60,60,.85)', 2 / k, [10 / k, 6 / k]);
