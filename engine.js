@@ -48,6 +48,9 @@
     // Ряд плашек: если элементы этих типов стоят в одну строку (перекрываются по высоте) и вместе
     // занимают ≥ ratio ширины холста — весь ряд не учитывается (бренд + цена с кнопкой во всю ширину)
     wideRow: { ratio: 0.75, types: ['brand-badge', 'cta', 'price-badge', 'bank-badge'] },
+    // Фото обрезано сверху на горизонтальном холсте: эти слои не учитываются — верх товара уходит
+    // за верхний край, заголовок ложится поверх. landscapeOnly: только если ширина холста больше высоты
+    cutTopIgnore: { types: ['headline'], landscapeOnly: true },
     mediaNeedsContent: false,    // медиа учитывается, только если в JSON есть ссылка на контент (true) или всегда (false)
     // Роли по типу элемента (перекрывают встроенные ROLES): 'obstacle' | 'thin' | 'soft' | 'ignore' | 'auto'
     //   obstacle — товар обходит целиком; thin — масса обходит, тонкие части (ручка, шнур) могут заходить под элемент;
@@ -1221,6 +1224,16 @@
     var palette = paletteOf(project);
     var items = (layout.elements || []).map(function (el, i) { return { el: el, index: i, info: classify(el, opts, palette, { layoutId: layoutId, index: i, canvasW: canvas.width, canvasH: canvas.height }) }; });
     applyWideRow(items, opts, canvas);
+    // Обрезан верх товара + горизонтальный холст — заголовок не учитывается (правило cutTopIgnore)
+    var cti = opts.cutTopIgnore, an0 = product && product.analysis;
+    var side0 = an0 ? (opts.anchor === 'auto' ? an0.cutSide : (opts.anchor === 'none' ? null : opts.anchor)) : null;
+    if (side0 === 'top' && cti && Array.isArray(cti.types) && (!cti.landscapeOnly || canvas.width > canvas.height)) {
+      items.forEach(function (it) {
+        if (it.info.override || cti.types.indexOf(it.el.type) < 0 || it.info.role === 'ignore' || it.info.role === 'target') return;
+        it.info.role = 'ignore'; it.info.defaultRole = 'ignore'; it.info.autoIgnored = true;
+        it.info.notes.push('фото обрезано сверху, холст горизонтальный — не учитывается, товар уходит за верхний край');
+      });
+    }
     var targetItem = null;
     items.forEach(function (it) { if (!targetItem && it.info.role === 'target') targetItem = it; });
     if (!targetItem) return { ok: false, error: 'В лейауте нет элемента «Фото товара» (product-image)', canvas: canvas, items: items };
@@ -1345,8 +1358,8 @@
   }
 
   var api = {
-    VERSION: 'dd32dbac',
-    MODULE_VERSION: '1.10',
+    VERSION: '068efc2d',
+    MODULE_VERSION: '1.11',
     DEFAULT_OPTIONS: DEFAULT_OPTIONS,
     ROLES: ROLES,
     TEXT_METRICS: TEXT_METRICS,

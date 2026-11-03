@@ -52,6 +52,12 @@
       "bank-badge"
     ]
   },
+  "cutTopIgnore": {
+    "types": [
+      "headline"
+    ],
+    "landscapeOnly": true
+  },
   "mediaNeedsContent": false,
   "roles": {},
   "layers": {},
