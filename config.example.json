@@ -79,6 +79,8 @@
     "thinLength": 0.06,
     "fringe": 0.8,
     "nearCore": 4,
+    "longThinArea": 2,
+    "cropGainLong": 1.1,
     "zoneCenterBand": 0.25,
     "thinUnderMax": 0,
     "thinUnderKeep": 0.6,
