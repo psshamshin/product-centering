@@ -27,7 +27,7 @@
     wideIgnore: {
       ratio: 0.6,
       types: ['price-badge', 'strikethrough-price', 'brand-badge', 'bank-badge', 'cta', 'discount'],
-      ratios: { 'price-badge': 0.4 },
+      ratios: { 'price-badge': 0.4, 'strikethrough-price': 0.35 },
       areaRatios: { 'product-description': 0.12 }
     },
     splitHeadlineIsSoft: false,  // заголовок с splitByProductImage: товар может заходить под него
@@ -71,7 +71,9 @@
       smallPartRatio: 0.08,    // куски массы мельче этой доли от крупнейшего — тонкие части
       thinOnlyRatio: 0.15,     // если масса меньше этой доли силуэта — массой считается весь силуэт
       thinLength: 0.06,
-      fringe: 0.8,             // тонкое ближе fringe × порога к массе — бахрома/кромка, считается массой
+      fringe: 0.8,
+      nearCore: 4,             // тонкое ближе nearCore × порога к массе (кончики насадки) не выходит за поле холста
+      zoneCenterBand: 0.25,    // «по центру зоны»: центр массы не дальше этой доли высоты зоны от её центра             // тонкое ближе fringe × порога к массе — бахрома/кромка, считается массой
       thinUnderMax: 0,         // запасной режим: доля тонких частей, которая может уйти под ЛЮБЫЕ элементы (0 — выкл; обычно это решают роли 'thin')
       thinUnderKeep: 0.6,      // …и это делается, если масса по центру не мельче этой доли от максимума где угодно        // часть уже этой доли от длины силуэта — тонкая (ручка), независимо от толщины остального
       analysisSize: 256,       // размер копии PNG для анализа, px по длинной стороне
@@ -280,7 +282,7 @@
     if (role === 'content') {
       var hasContent = ['contentUrl', 'url', 'src', 'mediaUrl', 'imageUrl', 'fileUrl', 'content', 'mediaId', 'fileId']
         .some(function (k) { return p[k] !== undefined && p[k] !== null && String(p[k]).trim() !== ''; });
-      role = (hasContent || !opts.mediaNeedsContent) ? 'obstacle' : 'ignore';
+      role = (hasContent || !opts.mediaNeedsContent) ? 'thin' : 'ignore';
       if (role === 'ignore') notes.push('без контента (contentUrl пустой)');
       else if (!hasContent) notes.push('контент не указан в JSON — учитывается по рамке');
     }
@@ -595,6 +597,17 @@
       coreShare: coreN / count, thinShare: (count - coreN) / count, fallback: fallback,
       dmax: dmax, radius: r, maskBox: maskBox, coreBox: coreBox, coreRows: coreRows,
       coreBoundary: samplePts(bnd, 520), coreSample: samplePts(smp, 400), thinPts: (thinPtsS = samplePts(thin, 900)),
+      thinNearCore: (function () {
+        if (!thinPtsS || !coreN) return null;
+        var src2 = new Uint8Array(pw * ph);
+        for (var yy = 0; yy < mh; yy++) for (var xx = 0; xx < mw; xx++) if (core[yy * mw + xx]) src2[(yy + 1) * pw + xx + 1] = 1;
+        var d2 = sqEDT(src2, pw, ph), lim = Math.pow(o.tuning.nearCore * r, 2), f = new Uint8Array(thinPtsS.length / 2);
+        for (var q = 0; q < f.length; q++) {
+          var qx = Math.min(mw - 1, Math.floor(thinPtsS[2 * q])), qy = Math.min(mh - 1, Math.floor(thinPtsS[2 * q + 1]));
+          f[q] = d2[(qy + 1) * pw + qx + 1] <= lim ? 1 : 0;
+        }
+        return f;
+      })(),
       thinExempt: thinNear ? (function () { var f = new Uint8Array(thinPtsS.length / 2); for (var q = 0; q < f.length; q++) f[q] = thinNear(thinPtsS[2 * q], thinPtsS[2 * q + 1]) ? 1 : 0; return f; })() : null,
       mask: mask, core: core, edgeCut: edgeCut, cutSide: cutSide, cutThroughThin: cutThin,
       cutPts: cutPts, thinNearCut: thinNear
@@ -756,6 +769,7 @@
 
     // hideCut: обрезанный край должен быть за холстом или под элементом; тонкие части у края могут
     // заходить под элементы и за край без штрафа
+    var NC = an.thinNearCore;
     var hideCut = !!env.hideCut, EX = hideCut ? an.thinExempt : null, CP = an.cutPts || [], nC = CP.length / 2;
     var coverBoxes = env.hard.concat(env.soft || []);
     function covered(X, Y, kx, ky) {
@@ -773,6 +787,7 @@
       for (var i = 0; i < nT; i++) {
         if (EX && EX[i]) continue;
         var x = X + TP[2 * i] * kx, y = Y + TP[2 * i + 1] * ky;
+        if (NC && NC[i] && (x < A.x || y < A.y || x > A.x + A.w || y > A.y + A.h)) { hit++; continue; }
         if (x < 0 || y < 0 || x >= W || y >= H) crop++;
         else if (fieldAt(fieldThin, x, y) < P) hit++;
       }
@@ -788,6 +803,11 @@
       for (i = 0; i < nT; i++) {
         if (EX && EX[i]) continue;
         x = X + TP[2 * i] * kx; y = Y + TP[2 * i + 1] * ky;
+        if (NC && NC[i]) {                                           // кончики у массы — внутри поля, как масса
+          var eA = Math.min(x - A.x, A.x + A.w - x, y - A.y, A.y + A.h - y);
+          if (eA < 0) hit++;
+          a = Math.min(fieldAt(fieldThin, x, y) - P, eA); n++; if (a < mn) mn = a; continue;
+        }
         var out = x < 0 || y < 0 || x >= W || y >= H;
         if (out) { crop++; if (cropMode) continue; }
         var dObs = fieldAt(fieldThin, x, y) - P;
@@ -839,8 +859,8 @@
         keepI = function (i, j) {
           if (Math.abs(grid.Xlo + i * grid.g + rc - W / 2) > axisTol) return false;
           if (!zone) return true;
-          var y = grid.Ylo + j * grid.g + mc;                       // центр массы — в главной свободной зоне
-          return y >= zone.y && y <= zone.y + zone.h;
+          var y = grid.Ylo + j * grid.g + mc;                       // центр массы — в средней части главной зоны
+          return Math.abs(y - (zone.y + zone.h / 2)) <= tu.zoneCenterBand * zone.h;
         };
       }
       var cs = freeCells(grid, 260, keepI);
@@ -881,7 +901,8 @@
     var eff = function (m) { return m ? m.s * (m.centered ? 1 : CENTER_KEEP) : 0; };
     var s0 = eff(m0), s1 = eff(m1);
     var cropMode = false, chosenMode = m0;
-    if (s1 && (!s0 || s1 >= CROP_GAIN * s0)) { cropMode = true; chosenMode = m1; }
+    if (s1 && (!s0 || s1 >= CROP_GAIN * s0 ||
+        (m1.centered && !(m0 && m0.centered) && m1.s >= CENTER_KEEP * m0.s))) { cropMode = true; chosenMode = m1; }   // обрезать ручку, чтобы масса встала по центру
     // Ни один вариант не встал по центру главной зоны (длинная ручка упирается в заголовок) —
     // пробуем пустить тонкие части под элементы и за край кадра: масса — по центру, ручка — за текстом
     var thinUnder = false;
@@ -1290,8 +1311,8 @@
   }
 
   var api = {
-    VERSION: 'f5521a68',
-    MODULE_VERSION: '1.7',
+    VERSION: 'f9074a56',
+    MODULE_VERSION: '1.9',
     DEFAULT_OPTIONS: DEFAULT_OPTIONS,
     ROLES: ROLES,
     TEXT_METRICS: TEXT_METRICS,

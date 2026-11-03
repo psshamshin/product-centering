@@ -21,7 +21,8 @@
       "discount"
     ],
     "ratios": {
-      "price-badge": 0.4
+      "price-badge": 0.4,
+      "strikethrough-price": 0.35
     },
     "areaRatios": {
       "product-description": 0.12
@@ -62,6 +63,8 @@
     "thinOnlyRatio": 0.15,
     "thinLength": 0.06,
     "fringe": 0.8,
+    "nearCore": 4,
+    "zoneCenterBand": 0.25,
     "thinUnderMax": 0,
     "thinUnderKeep": 0.6,
     "analysisSize": 256,
