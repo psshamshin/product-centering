@@ -215,6 +215,7 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
             <label class="field">Ширина лого WB, × h<input type="number" id="opt-f-logo" min="0.5" max="6" step="0.01"></label>
             <label class="field">Ширина скидки, × h<input type="number" id="opt-f-discount" min="0.5" max="6" step="0.01"></label>
             <label class="field">Ширина «Цена и кнопка», × h<input type="number" id="opt-f-cta" min="0.5" max="6" step="0.01"></label>
+            <label class="field">Не учитывать плашки шире, % холста<input type="number" id="opt-wide" min="0" max="100" step="1"></label>
             <label class="field">Мин. сторона области, px<input type="number" id="opt-minside" min="20" max="600" step="1"></label>
             <label class="check wide field"><input type="checkbox" id="opt-disclaimer"> <span>Дисклеймер — препятствие (по умолчанию товар может уходить под него)</span></label>
             <label class="check wide field"><input type="checkbox" id="opt-split"> <span>Товар может заходить под заголовок с разбиением (splitByProductImage)</span></label>
@@ -279,13 +280,13 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
 </div>
 
 <script type="application/json" id="sample-json">{"project":{"id":"demo-project","name":"Демо","layoutElements":[]},"scenes":[{"id":"demo-scene-0","canvas":{"width":1440,"height":480},"placement":{"id":"demo-placement-0","name":"Демо_1440x480"},"layouts":[{"id":"demo-layout-0-0","name":"Демо_1440x480_5с_1","durationSec":5,"elements":[{"properties":[{"key":"fadeEnabled","value":true},{"key":"h","value":192,"visibility":"public"},{"key":"fadeOpacity","value":30},{"key":"fadeColor","value":"#000000"},{"key":"fadePosition","value":"bottom"},{"key":"gradientStops","value":""},{"key":"gradientStart","value":""},{"key":"gradientEnd","value":""}],"title":"Градиент подложка","type":"fade"},{"properties":[{"key":"x","value":1153.65},{"key":"y","value":34.63},{"key":"h","value":100},{"key":"text","value":""},{"key":"color","value":"#FFFF00"},{"key":"textColor","value":"#000000"},{"key":"enabled","value":true},{"key":"rotation","value":0},{"key":"animationEnabled","value":true},{"key":"animationSide","value":"left"}],"title":"Скидка","type":"discount"},{"properties":[{"key":"color","value":"#A3D9C4"}],"title":"Фон","type":"background"},{"properties":[{"key":"x","value":46.16},{"key":"y","value":179.25},{"key":"h","value":163.06},{"key":"text","value":""},{"key":"shadowEnabled","value":false},{"key":"shadowOpacity","value":0.16},{"key":"shadowHeight","value":0.35},{"key":"shadowBlur","value":0.6},{"key":"shadowColor","value":"#000000"}],"title":"Цена и кнопка","type":"cta"},{"properties":[{"key":"x","value":39.77},{"key":"y","value":420},{"key":"w","value":1360},{"key":"h","value":34},{"key":"fontSize","value":34},{"key":"fontWeight","value":300},{"key":"text","value":""},{"key":"theme","value":"dark"},{"key":"vAlign","value":"bottom"},{"key":"align","value":"left"},{"key":"shadowEnabled","value":false},{"key":"shadowOpacity","value":0.22},{"key":"shadowHeight","value":0.45},{"key":"shadowBlur","value":0.6},{"key":"shadowColor","value":"#000000"}],"title":"Дисклеймер","type":"disclaimer"},{"properties":[{"key":"x","value":1240},{"key":"y","value":360},{"key":"h","value":80},{"key":"color","value":"#FF00FF"},{"key":"textColor","value":"#FFFFFF"},{"key":"animationEnabled","value":true}],"title":"Лого WB","type":"wb-logo"}]},{"id":"demo-layout-0-1","name":"Демо_1440x480_5с_TEST_pos","durationSec":5,"elements":[{"properties":[{"key":"x","value":40},{"key":"y","value":420},{"key":"w","value":1360},{"key":"h","value":34},{"key":"fontSize","value":34},{"key":"fontWeight","value":300},{"key":"text","value":""},{"key":"theme","value":"dark"},{"key":"vAlign","value":"bottom"},{"key":"align","value":"left"},{"key":"shadowEnabled","value":false},{"key":"shadowOpacity","value":0.22},{"key":"shadowHeight","value":0.45},{"key":"shadowBlur","value":0.6},{"key":"shadowColor","value":"#000000"}],"title":"Дисклеймер","type":"disclaimer"},{"properties":[{"key":"fadeEnabled","value":true},{"key":"h","value":192,"visibility":"public"},{"key":"fadeOpacity","value":30},{"key":"fadeColor","value":"#000000"},{"key":"fadePosition","value":"bottom"},{"key":"gradientStops","value":""},{"key":"gradientStart","value":""},{"key":"gradientEnd","value":""}],"title":"Градиент подложка","type":"fade"},{"properties":[{"key":"x","value":392.41},{"key":"y","value":12.98},{"key":"w","value":696.45},{"key":"h","value":447.36},{"key":"contentUrl","value":""},{"key":"imageScale","value":100}],"title":"Изображение товара","type":"product-image"},{"properties":[{"key":"x","value":1240},{"key":"y","value":360},{"key":"h","value":80},{"key":"color","value":"#FF00FF"},{"key":"textColor","value":"#FFFFFF"},{"key":"animationEnabled","value":true}],"title":"Лого WB","type":"wb-logo"},{"properties":[{"key":"x","value":41.29},{"key":"y","value":174.35},{"key":"h","value":171.35},{"key":"text","value":""},{"key":"shadowEnabled","value":false},{"key":"shadowOpacity","value":0.16},{"key":"shadowHeight","value":0.35},{"key":"shadowBlur","value":0.6},{"key":"shadowColor","value":"#000000"}],"title":"Цена и кнопка","type":"cta"},{"properties":[{"key":"x","value":1097.56},{"key":"y","value":45.42},{"key":"h","value":93.23},{"key":"text","value":""},{"key":"color","value":"#FFFF00"},{"key":"textColor","value":"#000000"},{"key":"enabled","value":true},{"key":"rotation","value":0},{"key":"animationEnabled","value":true},{"key":"animationSide","value":"left"}],"title":"Скидка","type":"discount"}]}],"settings":{"mode":"mono","safeZones":[{"key":"top","value":0},{"key":"left","value":0},{"key":"right","value":0},{"key":"bottom","value":0}],"maxOutputVideoSizeBytes":9961472}}]}</script>
-<script src="engine.js?v=33036895"></script>
+<script src="engine.js?v=c29ad263"></script>
 <script>
 (function () {
   'use strict';
   var E = window.ProductCentering;
   // Страница и engine.js должны быть из одной сборки (частая ошибка — загружен новый index.html и старый engine.js или его копия из кэша)
-  var EXPECTED_ENGINE = '33036895';
+  var EXPECTED_ENGINE = 'c29ad263';
   if (!E || E.VERSION !== EXPECTED_ENGINE) {
     var msg = document.createElement('div');
     msg.className = 'error';
@@ -468,6 +469,7 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
     $('opt-clearance').value = S.opts.clearance; $('opt-fill').value = Math.round(S.opts.fill * 100);
     $('opt-thin').value = Math.round(S.opts.thinRatio * 100); $('opt-crop').checked = S.opts.thinCrop;
     $('opt-anchor').value = S.opts.anchor || 'auto';
+    $('opt-wide').value = Math.round(((S.opts.wideIgnore && S.opts.wideIgnore.ratio) || 0) * 100);
     syncCfg();
   }
   function readNum(id, fallback) { var v = parseFloat($(id).value); return isFinite(v) ? v : fallback; }
@@ -486,13 +488,15 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
     S.opts.fill = Math.min(100, Math.max(40, readNum('opt-fill', DEF.fill * 100))) / 100;
     S.opts.thinCrop = $('opt-crop').checked;
     S.opts.anchor = $('opt-anchor').value;
+    S.opts.wideIgnore = S.opts.wideIgnore || JSON.parse(JSON.stringify(DEF.wideIgnore));
+    S.opts.wideIgnore.ratio = Math.min(100, Math.max(0, readNum('opt-wide', DEF.wideIgnore.ratio * 100))) / 100;
     var thin = Math.min(60, Math.max(5, readNum('opt-thin', DEF.thinRatio * 100))) / 100;
     if (thin !== S.opts.thinRatio) { S.opts.thinRatio = thin; analyzePng(); }
     syncCfg();
     recompute();
   }
   ['opt-margin', 'opt-padding', 'opt-aspect', 'opt-f-logo', 'opt-f-discount', 'opt-f-cta', 'opt-minside', 'opt-disclaimer', 'opt-safe', 'opt-split',
-   'opt-clearance', 'opt-fill', 'opt-thin', 'opt-crop', 'opt-anchor']
+   'opt-clearance', 'opt-fill', 'opt-thin', 'opt-crop', 'opt-anchor', 'opt-wide']
     .forEach(function (id) { $(id).addEventListener('change', onOptions); $(id).addEventListener('input', onOptions); });
   $('opt-reset').addEventListener('click', function () { S.opts = JSON.parse(JSON.stringify(DEF)); syncOptionInputs(); analyzePng(); recompute(); });
 
@@ -599,7 +603,7 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
     r.items.forEach(function (it) {
       var i = it.info, tr = document.createElement('tr');
       var size = i.box ? Math.round(i.box.w) + '×' + Math.round(i.box.h) : (i.role === 'target' && r.ok ? Math.round(r.after.w) + '×' + Math.round(r.after.h) : '—');
-      var src = i.source ? SRC_TEXT[i.source] : (i.notes.filter(function (n) { return n.indexOf('роль задана') < 0; })[0] || '');
+      var src = i.autoIgnored ? i.notes[i.notes.length - 1] : (i.source ? SRC_TEXT[i.source] : (i.notes.filter(function (n) { return n.indexOf('роль задана') < 0; })[0] || ''));
       [i.name, null, size, src].forEach(function (c, k) {
         var td = document.createElement('td');
         if (k === 1) td.appendChild(roleControl(it, r)); else td.textContent = c;
@@ -753,7 +757,8 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
     } else if (t === 'headline' || t === 'product-description') {
       var isH = t === 'headline';
       var fsz = +p.fontSize || (isH ? 172 : 64), lh = +p.lineHeight || (isH ? 0.81 : 1);
-      var lines = (String(p.text || '').trim() ? String(p.text) : (isH ? 'Заголовок' : 'Название и описание товара')).split('\n');
+      var lines = info.textLines || (String(p.text || '').trim() ? String(p.text) : (isH ? 'Заголовок' : 'Название и описание товара')).split('\n');
+      if (info.fontSize) fsz = info.fontSize;
       var al = p.align === 'center' ? 'center' : (p.align === 'right' ? 'right' : 'left');
       ctx.font = (isH ? 900 : 500) + ' ' + fsz + 'px ' + getComputedStyle(document.body).fontFamily;
       ctx.fillStyle = p.color || '#ffffff'; ctx.textBaseline = 'top'; ctx.textAlign = al;
@@ -845,7 +850,7 @@ table.elements tr.overridden td:first-child::after { content: ' •'; color: var
       }
     }
 
-    items.forEach(function (it) { if (it.info.box && it.info.role !== 'ignore') drawElement(ctx, it); });
+    items.forEach(function (it) { if (it.info.box && (it.info.role !== 'ignore' || it.info.autoIgnored || it.info.override)) drawElement(ctx, it); });
 
     if (show.boxes) {
       items.forEach(function (it) {

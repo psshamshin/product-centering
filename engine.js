@@ -19,6 +19,9 @@
     minSide: 80,                 // свободные области уже этого не рассматриваем
     productAspect: 1,            // пропорции товара (ширина / высота), когда PNG нет
     disclaimerIsObstacle: false, // по умолчанию товар может уходить под дисклеймер
+    // Широкие плашки (цена, бейдж) не учитываются: если элемент перечисленного типа шире ratio × ширина холста,
+    // ему ставится «не учитывается». ratio: 0 — правило выключено. Явная роль слоя (layers) важнее.
+    wideIgnore: { ratio: 0.6, types: ['price-badge', 'strikethrough-price', 'brand-badge', 'bank-badge', 'cta', 'discount'] },
     splitHeadlineIsSoft: false,  // заголовок с splitByProductImage: товар может заходить под него
     useSafeZones: true,          // прибавлять settings.safeZones сцены к полям
     widthFactors: {              // ширина = коэффициент × высота (калибровка по рендеру)
@@ -28,8 +31,13 @@
       'age-disclaimer': 1.5,
       'ali-price': 2.0,
       'ali-discount': 2.0,
-      'aliexpress-logo': 3.5
+      'aliexpress-logo': 3.5,
+      'media': 2.7               // медиа (логотип партнёра) без ширины в JSON: ширина = 2,7 × h
     },
+    // Плашки, которые в рендере сжимаются по тексту: если в JSON ширина контейнера больше текста —
+    // берётся оценка по тексту (плашка у левого края, при align: center — по центру контейнера)
+    hugText: ['price-badge'],
+    mediaNeedsContent: false,    // медиа учитывается, только если в JSON есть ссылка на контент (true) или всегда (false)
     // Роли по типу элемента (перекрывают встроенные ROLES): 'obstacle' | 'thin' | 'soft' | 'ignore' | 'auto'
     //   obstacle — товар обходит целиком; thin — масса обходит, тонкие части (ручка, шнур) могут заходить под элемент;
     //   soft — товар может заходить под элемент; ignore — не учитывается
@@ -144,6 +152,10 @@
         if (n === null) { warn.push(key + ': не число — оставлено ' + d); return; }
         out[k] = n; return;
       }
+      if (Array.isArray(d)) {
+        if (!Array.isArray(v)) { warn.push(key + ': ожидался список — оставлено по умолчанию'); return; }
+        out[k] = v.slice(); return;
+      }
       if (typeof d === 'boolean') {
         if (typeof v !== 'boolean') { warn.push(key + ': ожидалось true/false — оставлено ' + d); return; }
         out[k] = v; return;
@@ -182,20 +194,39 @@
   }
 
   // Оценка размеров текстового элемента по кеглю, строкам и длине текста
+  // Перенос по словам под ширину контейнера (как в рендере): ширина слова ≈ символы × кегль × charW
+  function wrapLines(text, fs, charW, maxW) {
+    var out = [];
+    text.split('\n').forEach(function (para) {
+      if (!maxW) { out.push(para); return; }
+      var words = para.split(/\s+/).filter(Boolean), cur = '';
+      if (!words.length) { out.push(''); return; }
+      words.forEach(function (wd) {
+        var next = cur ? cur + ' ' + wd : wd;
+        if (cur && next.length * fs * charW > maxW) { out.push(cur); cur = wd; } else cur = next;
+      });
+      out.push(cur);
+    });
+    return out;
+  }
   function textSize(type, p, w, h, opts) {
     var m = Object.assign({}, TEXT_METRICS[type] || {}, (opts && opts.textMetrics && opts.textMetrics[type]) || {});
     if (!m.charW) m = Object.assign({ placeholder: 'Текст', charW: 0.55, lineH: 1.0, pad: 0 }, m);
     var lineH = num(p.lineHeight) || m.lineH;
     var raw = (typeof p.text === 'number') ? String(p.text) : (p.text || '');
     var text = String(raw).trim() ? String(raw) : m.placeholder;
-    var lines = text.split('\n');
-    var maxChars = lines.reduce(function (a, l) { return Math.max(a, l.length); }, 1);
-    var fs = num(p.fontSize) || num(p.titleFontSize) || (h !== null ? h / (lineH * lines.length + 2 * m.pad) : null) || 60;
+    var hard = text.split('\n');
+    // У плашек (цена, бейджи) кегль считается от высоты: fontSize в JSON бывает в других единицах (483 при h = 100)
+    var fromH = h !== null ? h / (lineH * hard.length + 2 * m.pad) : null;
+    var fs = (m.pad > 0 && fromH) || num(p.fontSize) || num(p.titleFontSize) || fromH || 60;
     var pad = fs * m.pad;
+    var lines = wrapLines(text, fs, m.charW, w !== null ? Math.max(1, w - 2 * pad) : 0);
+    var maxChars = lines.reduce(function (a, l) { return Math.max(a, l.length); }, 1);
     return {
       w: w !== null ? w : maxChars * fs * m.charW + 2 * pad,
       h: h !== null ? h : fs * lineH * lines.length + 2 * pad,
-      text: text
+      textW: maxChars * fs * m.charW + 2 * pad,
+      text: text, lines: lines, fontSize: fs
     };
   }
 
@@ -239,8 +270,11 @@
     var ov = layerOverride(el, opts, ctx);
     if (p.enabled === false && !(ov && ov.role !== 'ignore' && ov.role !== 'auto')) { res.role = 'ignore'; res.defaultRole = 'ignore'; notes.push('выключен'); return res; }
     if (role === 'content') {
-      role = p.contentUrl ? 'obstacle' : 'ignore';
-      if (role === 'ignore') notes.push('без контента');
+      var hasContent = ['contentUrl', 'url', 'src', 'mediaUrl', 'imageUrl', 'fileUrl', 'content', 'mediaId', 'fileId']
+        .some(function (k) { return p[k] !== undefined && p[k] !== null && String(p[k]).trim() !== ''; });
+      role = (hasContent || !opts.mediaNeedsContent) ? 'obstacle' : 'ignore';
+      if (role === 'ignore') notes.push('без контента (contentUrl пустой)');
+      else if (!hasContent) notes.push('контент не указан в JSON — учитывается по рамке');
     }
     if (type === 'disclaimer' && opts.disclaimerIsObstacle) role = 'obstacle';
     if (type === 'headline' && p.splitByProductImage === true && opts.splitHeadlineIsSoft) {
@@ -277,7 +311,17 @@
     if ((w === null || h === null) && (TEXT_METRICS[type] || (opts.textMetrics && opts.textMetrics[type]))) {
       var t = textSize(type, p, w, h, opts);
       notes.push('размер оценён по тексту «' + t.text.replace(/\n/g, ' ') + '»: ' + Math.round(t.w) + '×' + Math.round(t.h) + ' px');
-      w = t.w; h = t.h; res.source = 'text';
+      w = t.w; h = t.h; res.source = 'text'; res.textLines = t.lines; res.fontSize = t.fontSize;
+      if (t.lines.length > 1 && t.lines.length > t.text.split('\n').length) notes.push('текст переносится на ' + t.lines.length + ' строки');
+    }
+    // Плашка по тексту: контейнер в JSON шире текста — рендер сжимает плашку
+    if (w !== null && h !== null && Array.isArray(opts.hugText) && opts.hugText.indexOf(type) >= 0 && TEXT_METRICS[type]) {
+      var tt = textSize(type, p, null, h, opts);
+      if (tt.textW < w - 1) {
+        notes.push('плашка по тексту: ' + Math.round(tt.textW) + ' px вместо контейнера ' + Math.round(w) + ' px');
+        if (p.align === 'center') x += (w - tt.textW) / 2; else if (p.align === 'right') x += w - tt.textW;
+        res.containerW = w; w = tt.textW; res.hugged = true;
+      }
     }
     if (w === null || h === null) { res.role = 'ignore'; res.source = null; notes.push('нет размеров — не учитывается'); return res; }
 
@@ -285,6 +329,13 @@
     if (type === 'disclaimer') box.y = y - h;            // y — нижняя граница текста, блок растёт вверх
     box = rotatedBounds(box, num(p.rotation) || 0);
     res.box = box;
+    // Слишком широкая плашка (цена во всю ширину) — не учитывается, иначе товару негде встать
+    var wi = opts.wideIgnore;
+    if (!res.override && wi && num(wi.ratio) > 0 && ctx && ctx.canvasW && Array.isArray(wi.types) &&
+        wi.types.indexOf(type) >= 0 && (role === 'obstacle' || role === 'thin') && Math.max(box.w, res.containerW || 0) >= wi.ratio * ctx.canvasW) {
+      res.role = 'ignore'; res.defaultRole = 'ignore'; res.autoIgnored = true;
+      notes.push('шире ' + Math.round(wi.ratio * 100) + '% холста (' + Math.round(Math.max(box.w, res.containerW || 0) / ctx.canvasW * 100) + '%) — не учитывается');
+    }
     return res;
   }
 
@@ -1099,7 +1150,7 @@
     if (!found) return { ok: false, error: 'Лейаут не найден' };
     var scene = found.scene, layout = found.layout, canvas = scene.canvas;
     var palette = paletteOf(project);
-    var items = (layout.elements || []).map(function (el, i) { return { el: el, index: i, info: classify(el, opts, palette, { layoutId: layoutId, index: i }) }; });
+    var items = (layout.elements || []).map(function (el, i) { return { el: el, index: i, info: classify(el, opts, palette, { layoutId: layoutId, index: i, canvasW: canvas.width }) }; });
     var targetItem = null;
     items.forEach(function (it) { if (!targetItem && it.info.role === 'target') targetItem = it; });
     if (!targetItem) return { ok: false, error: 'В лейауте нет элемента «Фото товара» (product-image)', canvas: canvas, items: items };
@@ -1224,7 +1275,7 @@
   }
 
   var api = {
-    VERSION: '33036895',
+    VERSION: 'c29ad263',
     DEFAULT_OPTIONS: DEFAULT_OPTIONS,
     ROLES: ROLES,
     TEXT_METRICS: TEXT_METRICS,

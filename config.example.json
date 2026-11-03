@@ -10,6 +10,17 @@
   "minSide": 80,
   "productAspect": 1,
   "disclaimerIsObstacle": false,
+  "wideIgnore": {
+    "ratio": 0.6,
+    "types": [
+      "price-badge",
+      "strikethrough-price",
+      "brand-badge",
+      "bank-badge",
+      "cta",
+      "discount"
+    ]
+  },
   "splitHeadlineIsSoft": false,
   "useSafeZones": true,
   "widthFactors": {
@@ -19,8 +30,13 @@
     "age-disclaimer": 1.5,
     "ali-price": 2,
     "ali-discount": 2,
-    "aliexpress-logo": 3.5
+    "aliexpress-logo": 3.5,
+    "media": 2.7
   },
+  "hugText": [
+    "price-badge"
+  ],
+  "mediaNeedsContent": false,
   "roles": {},
   "layers": {},
   "textMetrics": {},
