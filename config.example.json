@@ -19,7 +19,13 @@
       "bank-badge",
       "cta",
       "discount"
-    ]
+    ],
+    "ratios": {
+      "price-badge": 0.4
+    },
+    "areaRatios": {
+      "product-description": 0.12
+    }
   },
   "splitHeadlineIsSoft": false,
   "useSafeZones": true,

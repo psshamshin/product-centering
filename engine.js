@@ -21,7 +21,15 @@
     disclaimerIsObstacle: false, // по умолчанию товар может уходить под дисклеймер
     // Широкие плашки (цена, бейдж) не учитываются: если элемент перечисленного типа шире ratio × ширина холста,
     // ему ставится «не учитывается». ratio: 0 — правило выключено. Явная роль слоя (layers) важнее.
-    wideIgnore: { ratio: 0.6, types: ['price-badge', 'strikethrough-price', 'brand-badge', 'bank-badge', 'cta', 'discount'] },
+    // ratios — свои пороги по ширине для отдельных типов (перекрывают ratio);
+    // areaRatios — порог по площади (доля площади холста): так большой текст посреди низкого баннера
+    // не учитывается, а такой же текст внизу высокого экрана — учитывается
+    wideIgnore: {
+      ratio: 0.6,
+      types: ['price-badge', 'strikethrough-price', 'brand-badge', 'bank-badge', 'cta', 'discount'],
+      ratios: { 'price-badge': 0.4 },
+      areaRatios: { 'product-description': 0.12 }
+    },
     splitHeadlineIsSoft: false,  // заголовок с splitByProductImage: товар может заходить под него
     useSafeZones: true,          // прибавлять settings.safeZones сцены к полям
     widthFactors: {              // ширина = коэффициент × высота (калибровка по рендеру)
@@ -331,10 +339,17 @@
     res.box = box;
     // Слишком широкая плашка (цена во всю ширину) — не учитывается, иначе товару негде встать
     var wi = opts.wideIgnore;
-    if (!res.override && wi && num(wi.ratio) > 0 && ctx && ctx.canvasW && Array.isArray(wi.types) &&
-        wi.types.indexOf(type) >= 0 && (role === 'obstacle' || role === 'thin') && Math.max(box.w, res.containerW || 0) >= wi.ratio * ctx.canvasW) {
-      res.role = 'ignore'; res.defaultRole = 'ignore'; res.autoIgnored = true;
-      notes.push('шире ' + Math.round(wi.ratio * 100) + '% холста (' + Math.round(Math.max(box.w, res.containerW || 0) / ctx.canvasW * 100) + '%) — не учитывается');
+    var wr = wi && wi.ratios && num(wi.ratios[type]) !== null ? num(wi.ratios[type]) : (wi ? num(wi.ratio) : 0);
+    var ar = wi && wi.areaRatios ? num(wi.areaRatios[type]) : null;
+    if (!res.override && wi && ctx && ctx.canvasW && (role === 'obstacle' || role === 'thin')) {
+      var bw = Math.max(box.w, res.containerW || 0);
+      if (wr > 0 && Array.isArray(wi.types) && wi.types.indexOf(type) >= 0 && bw >= wr * ctx.canvasW) {
+        res.role = 'ignore'; res.defaultRole = 'ignore'; res.autoIgnored = true;
+        notes.push('шире ' + Math.round(wr * 100) + '% холста (' + Math.round(bw / ctx.canvasW * 100) + '%) — не учитывается');
+      } else if (ar > 0 && ctx.canvasH && bw * box.h >= ar * ctx.canvasW * ctx.canvasH) {
+        res.role = 'ignore'; res.defaultRole = 'ignore'; res.autoIgnored = true;
+        notes.push('занимает ' + Math.round(bw * box.h / (ctx.canvasW * ctx.canvasH) * 100) + '% площади (порог ' + Math.round(ar * 100) + '%) — не учитывается');
+      }
     }
     return res;
   }
@@ -1150,7 +1165,7 @@
     if (!found) return { ok: false, error: 'Лейаут не найден' };
     var scene = found.scene, layout = found.layout, canvas = scene.canvas;
     var palette = paletteOf(project);
-    var items = (layout.elements || []).map(function (el, i) { return { el: el, index: i, info: classify(el, opts, palette, { layoutId: layoutId, index: i, canvasW: canvas.width }) }; });
+    var items = (layout.elements || []).map(function (el, i) { return { el: el, index: i, info: classify(el, opts, palette, { layoutId: layoutId, index: i, canvasW: canvas.width, canvasH: canvas.height }) }; });
     var targetItem = null;
     items.forEach(function (it) { if (!targetItem && it.info.role === 'target') targetItem = it; });
     if (!targetItem) return { ok: false, error: 'В лейауте нет элемента «Фото товара» (product-image)', canvas: canvas, items: items };
@@ -1275,7 +1290,8 @@
   }
 
   var api = {
-    VERSION: 'c29ad263',
+    VERSION: 'f5521a68',
+    MODULE_VERSION: '1.7',
     DEFAULT_OPTIONS: DEFAULT_OPTIONS,
     ROLES: ROLES,
     TEXT_METRICS: TEXT_METRICS,
