@@ -45,6 +45,9 @@
     // Плашки, которые в рендере сжимаются по тексту: если в JSON ширина контейнера больше текста —
     // берётся оценка по тексту (плашка у левого края, при align: center — по центру контейнера)
     hugText: ['price-badge'],
+    // Ряд плашек: если элементы этих типов стоят в одну строку (перекрываются по высоте) и вместе
+    // занимают ≥ ratio ширины холста — весь ряд не учитывается (бренд + цена с кнопкой во всю ширину)
+    wideRow: { ratio: 0.75, types: ['brand-badge', 'cta', 'price-badge', 'bank-badge'] },
     mediaNeedsContent: false,    // медиа учитывается, только если в JSON есть ссылка на контент (true) или всегда (false)
     // Роли по типу элемента (перекрывают встроенные ROLES): 'obstacle' | 'thin' | 'soft' | 'ignore' | 'auto'
     //   obstacle — товар обходит целиком; thin — масса обходит, тонкие части (ручка, шнур) могут заходить под элемент;
@@ -1123,6 +1126,36 @@
     };
   }
 
+  // Ряд плашек во всю ширину — не учитывается (см. options.wideRow)
+  function applyWideRow(items, opts, canvas) {
+    var wr = opts.wideRow;
+    if (!wr || !(num(wr.ratio) > 0) || !Array.isArray(wr.types)) return;
+    var cand = items.filter(function (it) {
+      return it.info.box && !it.info.override && wr.types.indexOf(it.el.type) >= 0 && (it.info.role === 'obstacle' || it.info.role === 'thin');
+    });
+    var used = {};
+    cand.forEach(function (a, i) {
+      if (used[i]) return;
+      var row = [i], b0 = a.info.box;
+      cand.forEach(function (b, j) {
+        if (j === i || used[j]) return;
+        var bb = b.info.box, ov = Math.min(b0.y + b0.h, bb.y + bb.h) - Math.max(b0.y, bb.y);
+        if (ov >= 0.5 * Math.min(b0.h, bb.h)) row.push(j);
+      });
+      if (row.length < 2) return;
+      var x0 = Infinity, x1 = -Infinity;
+      row.forEach(function (k) { var bx = cand[k].info.box; x0 = Math.min(x0, bx.x); x1 = Math.max(x1, bx.x + bx.w); });
+      if (x1 - x0 >= wr.ratio * canvas.width) {
+        row.forEach(function (k) {
+          used[k] = 1;
+          var inf = cand[k].info;
+          inf.role = 'ignore'; inf.defaultRole = 'ignore'; inf.autoIgnored = true;
+          inf.notes.push('ряд плашек шириной ' + Math.round((x1 - x0) / canvas.width * 100) + '% холста (порог ' + Math.round(wr.ratio * 100) + '%) — не учитывается');
+        });
+      }
+    });
+  }
+
   var SIDE_RU = { bottom: ['снизу', 'нижнему', 'нижний'], top: ['сверху', 'верхнему', 'верхний'], left: ['слева', 'левому', 'левый'], right: ['справа', 'правому', 'правый'] };
 
   // Самая крупная вписанная рамка товара с пропорцией aspect (w/h)
@@ -1187,6 +1220,7 @@
     var scene = found.scene, layout = found.layout, canvas = scene.canvas;
     var palette = paletteOf(project);
     var items = (layout.elements || []).map(function (el, i) { return { el: el, index: i, info: classify(el, opts, palette, { layoutId: layoutId, index: i, canvasW: canvas.width, canvasH: canvas.height }) }; });
+    applyWideRow(items, opts, canvas);
     var targetItem = null;
     items.forEach(function (it) { if (!targetItem && it.info.role === 'target') targetItem = it; });
     if (!targetItem) return { ok: false, error: 'В лейауте нет элемента «Фото товара» (product-image)', canvas: canvas, items: items };
@@ -1311,8 +1345,8 @@
   }
 
   var api = {
-    VERSION: 'f9074a56',
-    MODULE_VERSION: '1.9',
+    VERSION: 'dd32dbac',
+    MODULE_VERSION: '1.10',
     DEFAULT_OPTIONS: DEFAULT_OPTIONS,
     ROLES: ROLES,
     TEXT_METRICS: TEXT_METRICS,

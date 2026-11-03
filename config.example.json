@@ -43,6 +43,15 @@
   "hugText": [
     "price-badge"
   ],
+  "wideRow": {
+    "ratio": 0.75,
+    "types": [
+      "brand-badge",
+      "cta",
+      "price-badge",
+      "bank-badge"
+    ]
+  },
   "mediaNeedsContent": false,
   "roles": {},
   "layers": {},
